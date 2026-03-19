@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+import subprocess
+
+
+@dataclass(slots=True)
+class ProcessResult:
+    code: int
+    stdout: str
+    stderr: str
+
+
+def run_command(command: list[str], cwd: Path, timeout: int = 900) -> ProcessResult:
+    proc = subprocess.run(
+        command,
+        cwd=str(cwd),
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+    return ProcessResult(code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)

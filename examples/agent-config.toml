@@ -1,0 +1,40 @@
+name = "demo-agent"
+execution_backend = "multi"
+
+[model_settings]
+backend_priority = ["codex", "claude", "opencode", "shell", "mock"]
+
+[model_settings.backends.shell]
+enabled = true
+command_template = "python -m pytest"
+
+[model_settings.backends.claude]
+enabled = true
+binary = "claude"
+args = ["-p"]
+
+[model_settings.backends.codex]
+enabled = true
+binary = "codex"
+args = ["exec", "--prompt"]
+
+[model_settings.backends.opencode]
+enabled = true
+binary = "opencode"
+args = ["run", "--prompt"]
+
+[model_settings.backends.mock]
+enabled = false
+
+[safety_settings]
+dry_run = false
+max_files_changed = 80
+max_commits_per_run = 1
+require_clean_working_tree = true
+allow_push = false
+allow_branch_create = true
+allowed_commands = ["python", "pytest"]
+timeout_seconds = 900
+max_retries = 0
+stop_on_validation_failure = true
+approval_mode = "semi-auto"
