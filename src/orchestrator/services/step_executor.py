@@ -41,25 +41,40 @@ class StepExecutor:
                 )
             )
             if not backend_result.success:
+                detail = backend_result.stderr.strip() or backend_result.stdout.strip()
+                detail_snippet = f" details={detail[:240]}" if detail else ""
                 raise BackendError(
-                    f"Step '{step.id}' failed using backend '{backend.name}': {backend_result.summary}"
+                    f"Step '{step.id}' failed using backend '{backend.name}': {backend_result.summary}{detail_snippet}"
                 )
         return results
 
     def _select_backend(self, step: TaskStep) -> ExecutionBackend:
-        candidates = step.tool_preferences or self.backend_priority
+        preferred = list(step.tool_preferences or [])
+        fallback = [name for name in self.backend_priority if name not in preferred]
+        candidates = preferred + fallback if preferred else list(self.backend_priority)
         unavailable: list[str] = []
+        unsupported: list[str] = []
         for backend_name in candidates:
             backend = self.registry.get(backend_name)
             if not backend:
                 continue
             if not backend.supports(step):
+                unsupported.append(backend_name)
                 continue
             if not backend.is_available():
                 unavailable.append(backend_name)
                 continue
             return backend
-        suffix = f" unavailable={unavailable}" if unavailable else ""
+        suffix_parts: list[str] = []
+        if preferred:
+            suffix_parts.append(f"preferred={preferred}")
+            suffix_parts.append(f"fallback={fallback}")
+        if unavailable:
+            suffix_parts.append(f"unavailable={unavailable}")
+        if unsupported:
+            suffix_parts.append(f"unsupported={unsupported}")
+        suffix_parts.append(f"enabled={list(self.registry.keys())}")
+        suffix = " " + " ".join(suffix_parts) if suffix_parts else ""
         raise BackendError(
             f"No backend available for step '{step.id}' type='{step.type}' preferences={candidates}{suffix}"
         )

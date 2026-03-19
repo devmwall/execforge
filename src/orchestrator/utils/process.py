@@ -13,12 +13,15 @@ class ProcessResult:
 
 
 def run_command(command: list[str], cwd: Path, timeout: int = 900) -> ProcessResult:
-    proc = subprocess.run(
-        command,
-        cwd=str(cwd),
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
-    return ProcessResult(code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        return ProcessResult(code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+    except FileNotFoundError as exc:
+        return ProcessResult(code=127, stdout="", stderr=f"executable not found: {command[0]} ({exc})")

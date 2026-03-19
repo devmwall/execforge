@@ -6,7 +6,7 @@ import re
 
 import yaml
 
-from orchestrator.domain.types import PromptTask, TaskStep
+from orchestrator.domain.types import PromptTask, TaskGitPolicy, TaskStep
 
 
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
@@ -40,6 +40,17 @@ def _parse_steps(metadata: dict, body: str) -> list[TaskStep]:
     return []
 
 
+def _parse_git_policy(metadata: dict) -> TaskGitPolicy:
+    data = metadata.get("git") or {}
+    if not isinstance(data, dict):
+        return TaskGitPolicy()
+    return TaskGitPolicy(
+        base_branch=data.get("base_branch"),
+        work_branch=data.get("work_branch"),
+        push_on_success=data.get("push_on_success"),
+    )
+
+
 def parse_task_raw(raw: str, rel_path: str, suffix: str) -> PromptTask:
     metadata: dict = {}
     body = raw
@@ -54,6 +65,7 @@ def parse_task_raw(raw: str, rel_path: str, suffix: str) -> PromptTask:
 
     title = metadata.get("title") or Path(rel_path).stem
     steps = _parse_steps(metadata, body)
+    git = _parse_git_policy(metadata)
     task = PromptTask(
         external_id=metadata.get("id"),
         source_path=rel_path,
@@ -67,6 +79,7 @@ def parse_task_raw(raw: str, rel_path: str, suffix: str) -> PromptTask:
         depends_on=list(metadata.get("depends_on", []) or []),
         acceptance_criteria=list(metadata.get("acceptance_criteria", []) or []),
         steps=steps,
+        git=git,
         raw_content=raw,
         last_seen_hash=sha256(raw.encode("utf-8")).hexdigest(),
     )

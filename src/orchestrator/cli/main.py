@@ -10,6 +10,7 @@ from orchestrator.config import AppConfig, ensure_app_dirs, get_app_paths, load_
 from orchestrator.exceptions import ConfigError, OrchestratorError
 from orchestrator.git.service import GitService
 from orchestrator.logging_setup import configure_logging
+from orchestrator.reporting.console import ConsoleReporter
 from orchestrator.services.agent_runner import AgentRunner
 from orchestrator.services.agent_service import AgentService
 from orchestrator.services.project_service import ProjectService
@@ -35,11 +36,12 @@ app.add_typer(run_app, name="run")
 app.add_typer(config_app, name="config")
 
 
-def _runtime():
+def _runtime(console_debug: bool = False, force_debug_logging: bool = False):
     paths = get_app_paths()
     ensure_app_dirs(paths)
     config = load_config(paths)
-    log_path = configure_logging(paths.logs_dir, config.log_level)
+    level = "DEBUG" if force_debug_logging else config.log_level
+    log_path = configure_logging(paths.logs_dir, level, console_debug=console_debug)
     engine = make_engine(str(paths.db_file))
     init_db(engine)
     git = GitService(timeout_seconds=config.default_timeout_seconds)
@@ -91,7 +93,7 @@ def _wizard_model_settings(profile: str, command_template: str, detected: dict[s
             "claude": {"enabled": detected["claude"]},
             "codex": {"enabled": detected["codex"]},
             "opencode": {"enabled": detected["opencode"]},
-            "mock": {"enabled": not has_llm},
+            "mock": {"enabled": True},
         },
     }
     if command_template:
@@ -143,7 +145,7 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
         else:
             repo_url = typer.prompt("Prompt source git URL (or local git path)")
             branch = typer.prompt("Prompt source branch", default="main")
-            folder_scope = typer.prompt("Prompt folder scope (blank for repo root)", default="")
+            folder_scope = typer.prompt("Prompt folder scope, repo-relative (blank for repo root, no leading /)", default="")
             source = ps_service.add(prompt_name, repo_url, branch=branch, folder_scope=folder_scope or None)
             typer.echo(f"Created prompt source #{source.id}: {source.name}")
 
@@ -227,13 +229,14 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
             "dry_run": False,
             "max_files_changed": 100,
             "max_commits_per_run": 1,
-            "require_clean_working_tree": True,
+            "require_clean_working_tree": False,
             "allow_push": False,
             "allow_branch_create": True,
             "allowed_commands": ["python", "pytest", "bash", "sh"],
             "timeout_seconds": 900,
             "max_retries": 0,
             "stop_on_validation_failure": True,
+            "pull_project_before_run": True,
             "approval_mode": "semi-auto",
         }
 
@@ -360,7 +363,7 @@ def agent_add(
             "claude": {"enabled": enable_claude},
             "codex": {"enabled": enable_codex},
             "opencode": {"enabled": enable_opencode},
-            "mock": {"enabled": enable_mock or execution_backend == "mock"},
+            "mock": {"enabled": True},
         },
     }
     if command_template:
@@ -369,13 +372,14 @@ def agent_add(
         "dry_run": False,
         "max_files_changed": 100,
         "max_commits_per_run": 1,
-        "require_clean_working_tree": True,
+        "require_clean_working_tree": False,
         "allow_push": False,
         "allow_branch_create": True,
         "allowed_commands": ["python", "pytest", "bash", "sh"],
         "timeout_seconds": 900,
         "max_retries": 0,
         "stop_on_validation_failure": True,
+        "pull_project_before_run": True,
         "approval_mode": "semi-auto",
     }
     with session_scope(engine) as session:
@@ -401,16 +405,22 @@ def agent_list():
 
 
 @agent_app.command("run")
-def agent_run(agent: str):
-    paths, config, engine, git, _ = _runtime()
+def agent_run(
+    agent: str,
+    verbose: bool = typer.Option(False, "--verbose", help="Show backend/selection details"),
+    debug: bool = typer.Option(False, "--debug", help="Show debug stream logs"),
+):
+    paths, config, engine, git, log_path = _runtime(console_debug=debug, force_debug_logging=debug)
+    mode = "debug" if debug else ("verbose" if verbose else "default")
     with session_scope(engine) as session:
         svc = AgentService(session)
         item = svc.get(agent)
         if not item:
             typer.echo("Agent not found")
             raise typer.Exit(code=2)
-        result = AgentRunner(session, paths, config, git).run_once(item)
-        typer.echo(json.dumps(result, indent=2))
+        result = AgentRunner(session, paths, config, git, reporter=ConsoleReporter(mode=mode), log_path=str(log_path)).run_once(item)
+        if debug:
+            typer.echo(json.dumps(result, indent=2))
 
 
 @agent_app.command("loop")
@@ -418,24 +428,33 @@ def agent_loop(
     agent: str,
     interval_seconds: int = 30,
     max_iterations: int = 0,
+    verbose: bool = typer.Option(False, "--verbose", help="Show backend/selection details"),
+    debug: bool = typer.Option(False, "--debug", help="Show debug stream logs"),
     only_new_prompts: bool = typer.Option(
-        False,
+        True,
         "--only-new-prompts/--all-eligible-prompts",
-        help="Ignore tasks that already existed when loop started",
+        help="Ignore tasks that already existed when loop started (default: only new prompts)",
+    ),
+    reset_only_new_baseline: bool = typer.Option(
+        False,
+        "--reset-only-new-baseline",
+        help="Start loop with zero exclusions in only-new mode",
     ),
 ):
-    paths, config, engine, git, _ = _runtime()
+    paths, config, engine, git, log_path = _runtime(console_debug=debug, force_debug_logging=debug)
+    mode = "debug" if debug else ("verbose" if verbose else "default")
     with session_scope(engine) as session:
         svc = AgentService(session)
         item = svc.get(agent)
         if not item:
             typer.echo("Agent not found")
             raise typer.Exit(code=2)
-        AgentRunner(session, paths, config, git).run_loop(
+        AgentRunner(session, paths, config, git, reporter=ConsoleReporter(mode=mode), log_path=str(log_path)).run_loop(
             item,
             interval_seconds=interval_seconds,
             max_iterations=max_iterations or None,
             only_new_prompts=only_new_prompts,
+            reset_only_new_baseline=reset_only_new_baseline,
         )
 
 

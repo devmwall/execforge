@@ -39,8 +39,7 @@ def build_backend_registry(agent: AgentORM) -> dict[str, ExecutionBackend]:
             requires_binary=bool(cfg.get("requires_binary", True)),
         )
 
-    if agent.execution_backend == "mock" or backends_cfg.get("mock", {}).get("enabled", False):
-        registry["mock"] = MockBackend()
+    registry["mock"] = MockBackend()
 
     if not registry:
         raise ConfigError("No execution backends are enabled for this agent")

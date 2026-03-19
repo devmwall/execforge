@@ -116,6 +116,12 @@ execforge config show
 execforge doctor
 ```
 
+Loop mode notes:
+
+- Default loop behavior is `--only-new-prompts`
+- To include existing eligible tasks on startup, use `--all-eligible-prompts`
+- To keep only-new mode but reset exclusions once, use `--reset-only-new-baseline`
+
 ## Quick start
 
 1) Initialize state:
@@ -194,6 +200,35 @@ Implement a /health endpoint in the API service.
 When a step has `tool_preferences`, the orchestrator tries those backends in order.
 If none are enabled and capable, the run fails explicitly.
 
+### Task-level git overrides
+
+Tasks can optionally override git branching/push behavior:
+
+```yaml
+git:
+  base_branch: main
+  work_branch: agent/custom/quick-001
+  push_on_success: false
+```
+
+Defaults (when omitted):
+
+- `base_branch`: project repo default branch
+- `work_branch`: `agent/<agent-name>/<task-id>`
+- `push_on_success`: agent push policy
+
+### Quick example: create a new project
+
+See `examples/tasks/task-quick-create-python-app.md` for a runnable task that scaffolds a new Python project in the target repo.
+
+Typical flow:
+
+```bash
+execforge prompt-source sync <source-name>
+execforge task list
+execforge agent run <agent-name>
+```
+
 ## Safety and autonomy controls
 
 Safety is stored per agent in `safety_settings_json` and currently supports:
@@ -208,6 +243,7 @@ Safety is stored per agent in `safety_settings_json` and currently supports:
 - `timeout_seconds`
 - `max_retries`
 - `stop_on_validation_failure`
+- `pull_project_before_run` (default `true`, runs git pull before task execution)
 - `approval_mode` (`manual`, `semi-auto`, `full-auto`)
 
 ## Validation steps

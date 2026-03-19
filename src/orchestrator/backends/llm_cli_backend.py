@@ -42,9 +42,15 @@ class LlmCliBackend(ExecutionBackend):
         prompt = self._resolve_prompt(step, task, prompt_root)
         cmd = [self.binary, *self.args, self.prompt_arg_template.format(prompt=prompt)]
         result = run_command(cmd, cwd=project_path, timeout=context.timeout_seconds)
+        summary = f"{self.name} exited with code {result.code}"
+        if result.code == 127:
+            summary = (
+                f"{self.name} executable not found. "
+                f"Install '{self.binary}', disable this backend, or enable mock fallback for the agent"
+            )
         return BackendResult(
             success=result.code == 0,
-            summary=f"{self.name} exited with code {result.code}",
+            summary=summary,
             stdout=result.stdout,
             stderr=result.stderr,
             tool_invocations=[{"tool": self.name, "step": step.id, "command": shlex.join(cmd), "exit_code": result.code}],

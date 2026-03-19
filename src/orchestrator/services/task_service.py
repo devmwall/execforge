@@ -21,7 +21,13 @@ class TaskService:
 
     def discover_and_upsert(self, source: PromptSourceORM) -> int:
         root = Path(source.local_clone_path)
-        scan_root = root / source.folder_scope if source.folder_scope else root
+        if source.folder_scope:
+            normalized_scope = str(source.folder_scope).lstrip("/\\")
+            scan_root = root / normalized_scope
+        else:
+            scan_root = root
+        if not scan_root.exists():
+            return 0
         files = sorted(
             [*scan_root.rglob("*.md"), *scan_root.rglob("*.yaml"), *scan_root.rglob("*.yml")],
             key=lambda p: str(p),
@@ -89,15 +95,16 @@ class TaskService:
     def get(self, task_id: int) -> TaskORM | None:
         return self.session.get(TaskORM, task_id)
 
-    def select_next_for_agent(
+    def eligible_for_agent(
         self,
         agent: AgentORM,
         project_name: str | None = None,
         exclude_task_ids: set[int] | None = None,
-    ) -> TaskORM | None:
+    ) -> list[TaskORM]:
         tasks = self.list(status=None)
         by_external = {t.external_id: t for t in tasks if t.external_id}
         excluded = exclude_task_ids or set()
+        eligible: list[TaskORM] = []
         for task in tasks:
             if task.prompt_source_id != agent.prompt_source_id:
                 continue
@@ -113,8 +120,21 @@ class TaskService:
                 resolved = all(by_external.get(dep) and by_external[dep].status == "done" for dep in deps)
                 if not resolved:
                     continue
-            return task
-        return None
+            eligible.append(task)
+        return eligible
+
+    def select_next_for_agent(
+        self,
+        agent: AgentORM,
+        project_name: str | None = None,
+        exclude_task_ids: set[int] | None = None,
+    ) -> TaskORM | None:
+        eligible = self.eligible_for_agent(
+            agent,
+            project_name=project_name,
+            exclude_task_ids=exclude_task_ids,
+        )
+        return eligible[0] if eligible else None
 
     def mark_status(self, task: TaskORM, status: str) -> None:
         task.status = status

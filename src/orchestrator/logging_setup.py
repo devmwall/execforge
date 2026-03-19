@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 
-def configure_logging(logs_dir: Path, level: str = "INFO") -> Path:
+def configure_logging(logs_dir: Path, level: str = "INFO", console_debug: bool = False) -> Path:
     logs_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     log_file = logs_dir / f"orchestrator-{stamp}.log"
@@ -15,15 +15,21 @@ def configure_logging(logs_dir: Path, level: str = "INFO") -> Path:
     root.handlers.clear()
 
     formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s run_id=%(run_id)s agent=%(agent)s task=%(task)s %(message)s"
+        "%(asctime)s %(levelname)s %(name)s "
+        "run=%(run_id)s agent=%(agent)s task=%(task)s "
+        "base=%(base_branch)s branch=%(branch)s step=%(step)s "
+        "%(message)s"
     )
 
-    stream = logging.StreamHandler()
-    stream.setFormatter(formatter)
-    root.addHandler(stream)
+    if console_debug:
+        stream = logging.StreamHandler()
+        stream.setFormatter(formatter)
+        stream.setLevel(level.upper())
+        root.addHandler(stream)
 
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setFormatter(formatter)
+    file_handler.setLevel(level.upper())
     root.addHandler(file_handler)
 
     return log_file
@@ -31,9 +37,17 @@ def configure_logging(logs_dir: Path, level: str = "INFO") -> Path:
 
 class ContextAdapter(logging.LoggerAdapter):
     def process(self, msg, kwargs):
-        extra = kwargs.get("extra", {})
-        base = {"run_id": "-", "agent": "-", "task": "-"}
-        base.update(self.extra)
+        raw_extra = kwargs.get("extra")
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
+        base: dict[str, object] = {
+            "run_id": "-",
+            "agent": "-",
+            "task": "-",
+            "base_branch": "-",
+            "branch": "-",
+            "step": "-",
+        }
+        base.update(dict(self.extra or {}))
         base.update(extra)
         kwargs["extra"] = base
         return msg, kwargs

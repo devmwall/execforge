@@ -5,6 +5,13 @@ from typing import Any
 
 
 @dataclass(slots=True)
+class TaskGitPolicy:
+    base_branch: str | None = None
+    work_branch: str | None = None
+    push_on_success: bool | None = None
+
+
+@dataclass(slots=True)
 class TaskStep:
     id: str
     type: str
@@ -29,6 +36,7 @@ class PromptTask:
     depends_on: list[str] = field(default_factory=list)
     acceptance_criteria: list[str] = field(default_factory=list)
     steps: list[TaskStep] = field(default_factory=list)
+    git: TaskGitPolicy = field(default_factory=TaskGitPolicy)
     raw_content: str = ""
     last_seen_hash: str = ""
 
