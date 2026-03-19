@@ -5,8 +5,10 @@ from pathlib import Path
 import shutil
 
 import typer
+from typer import Context
 
 from orchestrator.config import AppConfig, ensure_app_dirs, get_app_paths, load_config, save_config
+from orchestrator.config import config_to_display_dict, get_config_schema, reset_config_values, update_config_values
 from orchestrator.exceptions import ConfigError, OrchestratorError
 from orchestrator.git.service import GitService
 from orchestrator.logging_setup import configure_logging
@@ -18,6 +20,7 @@ from orchestrator.services.prompt_source_service import PromptSourceService
 from orchestrator.services.run_service import RunService
 from orchestrator.services.task_service import TaskService
 from orchestrator.storage.db import init_db, make_engine, session_scope
+from orchestrator.storage.models import ProjectRepoORM, PromptSourceORM
 
 
 app = typer.Typer(help="ExecForge: local multi-backend execution orchestrator")
@@ -34,6 +37,18 @@ app.add_typer(agent_app, name="agent")
 app.add_typer(task_app, name="task")
 app.add_typer(run_app, name="run")
 app.add_typer(config_app, name="config")
+
+
+@agent_app.callback(invoke_without_command=True)
+def agent_root(ctx: Context):
+    if ctx.invoked_subcommand is None:
+        agent_list()
+
+
+@config_app.callback(invoke_without_command=True)
+def config_root(ctx: Context):
+    if ctx.invoked_subcommand is None:
+        config_show()
 
 
 def _runtime(console_debug: bool = False, force_debug_logging: bool = False):
@@ -398,10 +413,100 @@ def agent_add(
 def agent_list():
     _, _, engine, _, _ = _runtime()
     with session_scope(engine) as session:
-        for a in AgentService(session).list():
-            typer.echo(
-                f"{a.id}\t{a.name}\tprompt={a.prompt_source_id}\tproject={a.project_repo_id}\tbackend={a.execution_backend}"
+        agents = AgentService(session).list()
+        for idx, a in enumerate(agents, start=1):
+            prompt_source = session.get(PromptSourceORM, a.prompt_source_id)
+            project = session.get(ProjectRepoORM, a.project_repo_id)
+
+            payload = {
+                "name": a.name,
+                "active": a.active,
+                "execution_backend": a.execution_backend,
+                "task_selector_strategy": a.task_selector_strategy,
+                "autonomy_level": a.autonomy_level,
+                "max_steps": a.max_steps,
+                "push_policy": a.push_policy,
+                "prompt_source": {
+                    "name": prompt_source.name if prompt_source else None,
+                    "repo_url": prompt_source.repo_url if prompt_source else None,
+                    "branch": prompt_source.branch if prompt_source else None,
+                    "folder_scope": prompt_source.folder_scope if prompt_source else None,
+                    "sync_strategy": prompt_source.sync_strategy if prompt_source else None,
+                    "active": prompt_source.active if prompt_source else None,
+                },
+                "project": {
+                    "name": project.name if project else None,
+                    "local_path": project.local_path if project else None,
+                    "default_branch": project.default_branch if project else None,
+                    "allowed_branch_pattern": project.allowed_branch_pattern if project else None,
+                    "active": project.active if project else None,
+                },
+                "model_settings": json.loads(a.model_settings_json or "{}"),
+                "safety_settings": json.loads(a.safety_settings_json or "{}"),
+                "validation_policy": json.loads(a.validation_policy_json or "[]"),
+                "commit_policy": json.loads(a.commit_policy_json or "{}"),
+            }
+            typer.echo(json.dumps(payload, indent=2))
+            if idx < len(agents):
+                typer.echo("")
+
+
+@agent_app.command("update")
+def agent_update(
+    agent: str,
+    set_pair: list[str] = typer.Option(
+        [],
+        "--set",
+        "-s",
+        help="Update agent config with key=value (repeatable)",
+    ),
+):
+    if not set_pair:
+        typer.echo("No updates provided. Use --set key=value")
+        raise typer.Exit(code=2)
+    updates: dict[str, str] = {}
+    for pair in set_pair:
+        if "=" not in pair:
+            typer.echo(f"Invalid --set value '{pair}', expected key=value")
+            raise typer.Exit(code=2)
+        k, v = pair.split("=", 1)
+        updates[k.strip()] = v.strip()
+
+    _, _, engine, _, _ = _runtime()
+    with session_scope(engine) as session:
+        svc = AgentService(session)
+        item = svc.get(agent)
+        if not item:
+            typer.echo("Agent not found")
+            raise typer.Exit(code=2)
+        updated = svc.update(item, updates)
+        typer.echo(f"Updated agent '{updated.name}'")
+
+
+@agent_app.command("delete")
+def agent_delete(
+    agent: str,
+    yes: bool = typer.Option(False, "--yes", help="Delete without confirmation"),
+):
+    _, _, engine, _, _ = _runtime()
+    with session_scope(engine) as session:
+        svc = AgentService(session)
+        item = svc.get(agent)
+        if not item:
+            typer.echo("Agent not found")
+            raise typer.Exit(code=2)
+
+        if not yes:
+            confirmed = typer.confirm(
+                f"Permanently delete agent '{item.name}' and its run history?",
+                default=False,
             )
+            if not confirmed:
+                typer.echo("Cancelled")
+                return
+
+        svc.delete_full(item)
+        typer.echo(f"Deleted agent '{agent}'")
 
 
 @agent_app.command("run")
@@ -509,7 +614,60 @@ def config_show():
     typer.echo(f"home: {paths.root}")
     typer.echo(f"db: {paths.db_file}")
     typer.echo(f"logs: {paths.logs_dir}")
-    typer.echo(json.dumps(config.__dict__, indent=2))
+    typer.echo(json.dumps(config_to_display_dict(config, mask_sensitive=True), indent=2))
+
+
+@config_app.command("set")
+def config_set(
+    key: str | None = typer.Argument(None),
+    value: str | None = typer.Argument(None),
+    set_pair: list[str] = typer.Option(
+        [],
+        "--set",
+        "-s",
+        help="Set config using key=value (repeatable)",
+    ),
+):
+    updates: dict[str, str] = {}
+    if key and value is not None:
+        updates[key] = value
+    for pair in set_pair:
+        if "=" not in pair:
+            typer.echo(f"Invalid --set value '{pair}', expected key=value")
+            raise typer.Exit(code=2)
+        k, v = pair.split("=", 1)
+        updates[k.strip()] = v.strip()
+    if not updates:
+        typer.echo("No config updates provided")
+        raise typer.Exit(code=2)
+
+    paths = get_app_paths()
+    updated = update_config_values(paths, updates)
+    typer.echo("Updated config:")
+    typer.echo(json.dumps(config_to_display_dict(updated, mask_sensitive=True), indent=2))
+
+
+@config_app.command("reset")
+def config_reset(
+    key: list[str] = typer.Argument([], help="Config key(s) to reset"),
+    all_keys: bool = typer.Option(False, "--all", help="Reset all keys to default values"),
+):
+    if not all_keys and not key:
+        typer.echo("Specify at least one key or pass --all")
+        raise typer.Exit(code=2)
+
+    paths = get_app_paths()
+    updated = reset_config_values(paths, keys=None if all_keys else key)
+    typer.echo("Reset config:")
+    typer.echo(json.dumps(config_to_display_dict(updated, mask_sensitive=True), indent=2))
+
+
+@config_app.command("keys")
+def config_keys():
+    schema = get_config_schema()
+    for key, spec in schema.items():
+        sensitive = "yes" if spec.sensitive else "no"
+        typer.echo(f"{key}\ttype={spec.value_type.__name__}\tsensitive={sensitive}\tdefault={spec.default}")
 
 
 @app.command("doctor")

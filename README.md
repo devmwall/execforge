@@ -105,6 +105,8 @@ execforge project list
 
 execforge agent add
 execforge agent list
+execforge agent update
+execforge agent delete
 execforge agent run <agent-name-or-id>
 execforge agent loop <agent-name-or-id>
 
@@ -113,6 +115,9 @@ execforge task inspect <task-id>
 
 execforge run list
 execforge config show
+execforge config set
+execforge config reset
+execforge config keys
 execforge doctor
 ```
 
@@ -121,6 +126,64 @@ Loop mode notes:
 - Default loop behavior is `--only-new-prompts`
 - To include existing eligible tasks on startup, use `--all-eligible-prompts`
 - To keep only-new mode but reset exclusions once, use `--reset-only-new-baseline`
+
+## Config management
+
+View current configuration (sensitive values are masked):
+
+```bash
+execforge config show
+```
+
+List editable keys:
+
+```bash
+execforge config keys
+```
+
+Update config values:
+
+```bash
+execforge config set log_level DEBUG
+execforge config set --set default_timeout_seconds=120 --set default_allow_push=true
+```
+
+Reset one key or all keys to defaults:
+
+```bash
+execforge config reset default_timeout_seconds
+execforge config reset --all
+```
+
+Notes:
+
+- Unknown keys are rejected with clear errors.
+- Invalid values/types are rejected before writing.
+- Config writes are atomic to avoid partial/corrupt files.
+- Secret keys (for example `*_api_key`) are never printed in cleartext by `config show`.
+
+## Agent config management
+
+`execforge agent list` prints full agent configuration blocks.
+
+Update agent config values:
+
+```bash
+execforge agent update test-agent --set max_steps=40 --set push_policy=on-success
+execforge agent update test-agent --set safety_settings.allow_push=true
+execforge agent update test-agent --set model_settings.command_template="python -m pytest"
+```
+
+Delete an agent config permanently (including its run history):
+
+```bash
+execforge agent delete test-agent --yes
+```
+
+Default command behavior:
+
+- `execforge agent` defaults to `execforge agent list`
+- `execforge config` defaults to `execforge config show`
 
 ## Quick start
 
