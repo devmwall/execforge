@@ -38,7 +38,9 @@ class ConsoleReporter:
             self._print(f"  Project: {context.get('project')}")
             self._print(f"  Prompt Source: {context.get('prompt_source')}")
             self._print(f"  Interval: {context.get('interval_seconds')}s")
+            self._print(f"  Only New Prompts: {str(context.get('only_new_prompts', True)).lower()}")
             self._print(f"  Reset Only New Baseline: {str(context.get('reset_only_new_baseline', False)).lower()}")
+            self._print(f"  Initial Excluded Tasks: {context.get('initial_excluded', 0)}")
             self._print(f"  Allow Dirty Working Tree: {str(context.get('allow_dirty_worktree', False)).lower()}")
             if context.get("branch_strategy"):
                 self._print(f"  Branch Strategy: {context.get('branch_strategy')}")
@@ -83,7 +85,11 @@ class ConsoleReporter:
                 self._print(f"  Reason: {context.get('reason')}")
                 self._print(f"  Eligible tasks: {context.get('eligible_count', 0)}")
                 self._print(f"  Excluded tasks: {context.get('excluded_count', 0)}")
+                if context.get("next_hint"):
+                    self._print(f"  Next: {context.get('next_hint')}")
                 if self.mode == "verbose":
+                    if context.get("code"):
+                        self._print(f"  Outcome: {context.get('code')}")
                     self._print(f"  Discovered tasks: {context.get('discovered_count', 0)}")
             return
 
@@ -134,6 +140,8 @@ class ConsoleReporter:
             self._print("Run complete")
             self._print("  Status: noop")
             self._print(f"  Reason: {context.get('reason', 'no actionable task found')}")
+            if context.get("next_hint"):
+                self._print(f"  Next: {context.get('next_hint')}")
             if context.get("project"):
                 self._print(f"  Project: {context.get('project')}")
             if context.get("warnings") is not None:

@@ -123,8 +123,10 @@ class AgentRunner:
                 LogEvent(
                     name="task_selection_completed",
                     context={
+                        "code": selection.code,
                         "selected_task_id": selection.selected_task_id,
                         "reason": selection.reason,
+                        "next_hint": selection.next_hint,
                         "eligible_count": selection.eligible_count,
                         "excluded_count": selection.excluded_count,
                         "discovered_count": selection.discovered_count,
@@ -138,7 +140,9 @@ class AgentRunner:
                     LogEvent(
                         name="run_noop",
                         context={
+                            "code": selection.code,
                             "reason": selection.reason,
+                            "next_hint": selection.next_hint,
                             "project": project.name,
                             "warnings": self.reporter.warnings_in_run,
                         },
@@ -345,12 +349,14 @@ class AgentRunner:
         source = self.session.get(PromptSourceORM, agent.prompt_source_id)
         safety = json.loads(agent.safety_settings_json or "{}")
         exclude_task_ids: set[int] = set()
+        initial_excluded = 0
         if only_new_prompts:
             if reset_only_new_baseline:
                 exclude_task_ids = set()
             else:
                 existing = self.task_service.list(status=None)
                 exclude_task_ids = {t.id for t in existing if t.prompt_source_id == agent.prompt_source_id}
+                initial_excluded = len(exclude_task_ids)
         self._emit(
             ContextAdapter(logging.getLogger("orchestrator.runner"), {"run_id": "", "agent": agent.name}),
             LogEvent(
@@ -361,7 +367,9 @@ class AgentRunner:
                     "project": project.name if project else "(missing)",
                     "prompt_source": source.name if source else "(missing)",
                     "interval_seconds": interval_seconds,
+                    "only_new_prompts": only_new_prompts,
                     "reset_only_new_baseline": reset_only_new_baseline,
+                    "initial_excluded": initial_excluded,
                     "allow_dirty_worktree": not safety.get(
                         "require_clean_working_tree", self.config.default_require_clean_tree
                     ),
@@ -450,6 +458,7 @@ class AgentRunner:
             return SelectionOutcome(
                 code="selected",
                 reason="task selected for execution",
+                next_hint=None,
                 selected_task_id=selected_task_ref,
                 eligible_count=len(eligible_filtered),
                 excluded_count=excluded_count,
@@ -460,6 +469,7 @@ class AgentRunner:
             return SelectionOutcome(
                 code="no_tasks_discovered",
                 reason="prompt sync succeeded but no task files were found",
+                next_hint="add task files to your prompt source folder, then run: execforge prompt-source sync <source-name>",
                 eligible_count=0,
                 excluded_count=excluded_count,
                 discovered_count=discovered_count,
@@ -469,6 +479,7 @@ class AgentRunner:
             return SelectionOutcome(
                 code="baseline_filtered",
                 reason="all discovered tasks are already part of the current baseline",
+                next_hint="run with --all-eligible-prompts or --reset-only-new-baseline",
                 eligible_count=0,
                 excluded_count=excluded_count,
                 discovered_count=discovered_count,
@@ -478,6 +489,7 @@ class AgentRunner:
             return SelectionOutcome(
                 code="all_completed",
                 reason="all discovered tasks are already complete",
+                next_hint="add new todo tasks in the prompt source and sync again",
                 eligible_count=0,
                 excluded_count=excluded_count,
                 discovered_count=discovered_count,
@@ -486,6 +498,7 @@ class AgentRunner:
         return SelectionOutcome(
             code="no_eligible_tasks",
             reason="no eligible task matched current execution rules",
+            next_hint="inspect tasks with: execforge task list and check dependencies/status",
             eligible_count=0,
             excluded_count=excluded_count,
             discovered_count=discovered_count,

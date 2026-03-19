@@ -1,55 +1,86 @@
-# Example Usage Walkthrough
+# Usage Walkthrough
 
-## 1) Initialize local orchestrator state
+This walkthrough follows the normal operator flow.
+
+## 1) Initialize
 
 ```bash
 execforge init
 ```
 
-## 2) Add prompt source and sync tasks
+`init` is interactive and helps you add first resources.
+
+## 2) Add a prompt source (task origin)
 
 ```bash
 execforge prompt-source add prompts https://github.com/example/prompts.git --branch main --folder-scope tasks
 execforge prompt-source sync prompts
 ```
 
-## 3) Add target project repo
+If the branch does not exist remotely and you want Execforge to create it:
+
+```bash
+execforge prompt-source sync prompts --bootstrap-missing-branch
+```
+
+## 3) Add a project repo (code target)
 
 ```bash
 execforge project add app ~/src/my-app
 ```
 
-## 4) Add an agent
+## 4) Create an agent (execution profile)
 
 ```bash
-execforge agent add app-agent 1 1 --execution-backend multi --enable-codex --enable-claude
+execforge agent add app-agent prompts app --execution-backend multi
 ```
 
-## 5) Run once
+## 5) Run
+
+Single run:
 
 ```bash
 execforge agent run app-agent
 ```
 
-Expected behavior:
+Continuous loop:
 
-- Prompt source syncs from git
-- Tasks are discovered from Markdown files
-- Task steps are parsed in order from YAML/frontmatter
-- Each step is routed to a matching backend (for example codex/claude/shell)
-- Next task moves to `in_progress`
-- Branch is created: `agent/app-agent/<task-id>`
-- Backend performs work
-- Validation runs
-- Commit is created if not in dry-run and repo changed
-- Task status becomes `done` or `failed`
-- Run record is persisted
+```bash
+execforge agent loop app-agent
+```
 
-## 6) Inspect state
+Use these loop flags when needed:
+
+- include backlog: `--all-eligible-prompts`
+- reset only-new baseline once: `--reset-only-new-baseline`
+
+## 6) Inspect output and state
 
 ```bash
 execforge task list
+execforge task inspect 1
 execforge run list
+execforge agent list
+execforge agent list --compact
 execforge config show
-execforge doctor
+execforge status
 ```
+
+If a run is noop, use:
+
+```bash
+execforge task list
+execforge prompt-source sync prompts
+execforge agent loop app-agent --all-eligible-prompts
+```
+
+## What should happen on a successful task
+
+- prompt source is synced
+- tasks are discovered
+- one eligible task is selected
+- task branch is prepared (`agent/<agent>/<task-id>` by default)
+- steps run via available backends
+- validations run
+- changes are committed (unless dry run)
+- run history is recorded

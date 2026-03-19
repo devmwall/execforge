@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class SelectionOutcome:
     code: str
     reason: str
+    next_hint: str | None = None
     selected_task_id: str | None = None
     eligible_count: int = 0
     excluded_count: int = 0

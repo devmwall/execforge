@@ -1,45 +1,50 @@
 # Architecture Overview
 
-This project uses a small layered structure designed for a local-first CLI workflow.
+This is a local CLI with a small, practical architecture.
 
-## Layers
+## Mental model in code
 
-1. CLI (`orchestrator.cli`)
-   - Typer command definitions
-   - Input parsing and output formatting
+- **Prompt source**: git repo with task files
+- **Project repo**: local repo to modify
+- **Agent**: links source + project + execution settings
 
-2. Services (`orchestrator.services`)
-   - Core use-case orchestration (add/list/sync/run)
-   - Agent lifecycle coordination
+## Main layers
 
-3. Integrations
-   - Git operations (`orchestrator.git`)
-   - Task parsing (`orchestrator.prompts`)
-   - Execution backends (`orchestrator.backends`)
-   - Step router/executor (`orchestrator.services.step_executor`)
-   - Validation pipeline (`orchestrator.validation`)
+1. `orchestrator.cli`
+   - command parsing and user output
 
-4. Persistence (`orchestrator.storage`)
-   - SQLAlchemy ORM models
-   - SQLite session lifecycle
+2. `orchestrator.services`
+   - orchestration use-cases (`init`, `sync`, `run`, `loop`)
 
-## State model
+3. `orchestrator.backends`
+   - interchangeable step executors (`shell`, `claude`, `codex`, `opencode`, `mock`)
 
-- Prompt sources are git repositories cloned to app state directory.
-- Project repos are local paths that remain external and unmanaged by app config files.
-- Tasks are discovered from prompt source files and tracked in SQLite for status/history.
-- Runs record each execution attempt with outcome, validations, commit SHA, and logs path.
+4. `orchestrator.git` / `orchestrator.prompts` / `orchestrator.validation`
+   - focused integration modules
 
-## Run lifecycle
+5. `orchestrator.storage`
+   - SQLite models and session lifecycle
 
-1) Sync prompt source
-2) Discover tasks
-3) Select next eligible task
-4) Validate repo state and switch/create branch
-5) Execute backend
-   - Parse ordered task steps
-   - Select backend per step from `tool_preferences` and enabled backend registry
-   - Fail explicitly when no backend can satisfy a step
-6) Run validation steps
-7) Commit/push based on policy and safety settings
-8) Persist run record and task status
+## Run flow
+
+Each run follows this sequence:
+
+1) sync prompt source
+2) discover tasks
+3) select next actionable task
+4) prepare git branch
+5) execute task steps
+6) run validations
+7) commit/push by policy
+8) persist run result
+
+## State location
+
+State is kept outside project repos in user app data:
+
+- SQLite DB
+- config file
+- logs
+- prompt source clones
+
+This keeps target repos clean and makes runs auditable.

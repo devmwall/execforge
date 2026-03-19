@@ -23,7 +23,17 @@ from orchestrator.storage.db import init_db, make_engine, session_scope
 from orchestrator.storage.models import ProjectRepoORM, PromptSourceORM
 
 
-app = typer.Typer(help="ExecForge: local multi-backend execution orchestrator")
+app = typer.Typer(
+    help=(
+        "ExecForge runs tasks from a prompt source repo against a project repo.\n\n"
+        "Typical flow:\n"
+        "  1) execforge init\n"
+        "  2) execforge prompt-source add ... && execforge prompt-source sync ...\n"
+        "  3) execforge project add ...\n"
+        "  4) execforge agent add ...\n"
+        "  5) execforge agent run <agent> or execforge agent loop <agent>"
+    )
+)
 prompt_source_app = typer.Typer(help="Manage prompt sources")
 project_app = typer.Typer(help="Manage project repositories")
 agent_app = typer.Typer(help="Manage and run agents")
@@ -138,7 +148,7 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
         typer.echo("Next steps:")
         typer.echo("  1) execforge prompt-source add <name> <repo-url>")
         typer.echo("  2) execforge project add <name> <local-path>")
-        typer.echo("  3) execforge agent add <name> <prompt-source-id> <project-repo-id>")
+        typer.echo("  3) execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>")
         typer.echo("  4) execforge agent run <name-or-id>")
         return
 
@@ -340,6 +350,10 @@ def prompt_source_sync(
             raise
         count = TaskService(session).discover_and_upsert(item)
         typer.echo(f"Synced prompt source '{item.name}' and discovered {count} task files")
+        if count == 0:
+            typer.echo("Hint: no task files found. Check folder scope and task file format.")
+        else:
+            typer.echo("Next: execforge task list")
 
 
 @project_app.command("add")
@@ -361,8 +375,8 @@ def project_list():
 @agent_app.command("add")
 def agent_add(
     name: str,
-    prompt_source_id: int,
-    project_repo_id: int,
+    prompt_source: str,
+    project_repo: str,
     execution_backend: str = "multi",
     command_template: str = "",
     enable_claude: bool = False,
@@ -370,7 +384,7 @@ def agent_add(
     enable_opencode: bool = False,
     enable_mock: bool = False,
 ):
-    _, _, engine, _, _ = _runtime()
+    paths, _, engine, git, _ = _runtime()
     model_settings: dict[str, object] = {
         "backend_priority": ["codex", "claude", "opencode", "shell", "mock"],
         "backends": {
@@ -398,10 +412,23 @@ def agent_add(
         "approval_mode": "semi-auto",
     }
     with session_scope(engine) as session:
+        prompt_service = PromptSourceService(session, paths, git)
+        project_service = ProjectService(session, git)
+
+        source = prompt_service.get(prompt_source)
+        if not source:
+            typer.echo(f"Prompt source not found: {prompt_source}")
+            raise typer.Exit(code=2)
+
+        project = project_service.get(project_repo)
+        if not project:
+            typer.echo(f"Project repo not found: {project_repo}")
+            raise typer.Exit(code=2)
+
         item = AgentService(session).add(
             name=name,
-            prompt_source_id=prompt_source_id,
-            project_repo_id=project_repo_id,
+            prompt_source_id=source.id,
+            project_repo_id=project.id,
             execution_backend=execution_backend,
             model_settings=model_settings,
             safety_settings=safety_settings,
@@ -410,13 +437,21 @@ def agent_add(
 
 
 @agent_app.command("list")
-def agent_list():
+def agent_list(
+    compact: bool = typer.Option(False, "--compact", help="Show one-line summary instead of full JSON blocks"),
+):
     _, _, engine, _, _ = _runtime()
     with session_scope(engine) as session:
         agents = AgentService(session).list()
         for idx, a in enumerate(agents, start=1):
             prompt_source = session.get(PromptSourceORM, a.prompt_source_id)
             project = session.get(ProjectRepoORM, a.project_repo_id)
+
+            if compact:
+                typer.echo(
+                    f"{a.name}\tbackend={a.execution_backend}\tprompt={prompt_source.name if prompt_source else '?'}\tproject={project.name if project else '?'}\tactive={a.active}"
+                )
+                continue
 
             payload = {
                 "name": a.name,
@@ -673,16 +708,62 @@ def config_keys():
 @app.command("doctor")
 def doctor():
     paths, _, engine, git, log_path = _runtime()
-    typer.echo(f"app_home\tOK\t{paths.root}")
-    typer.echo(f"db_file\tOK\t{paths.db_file}")
-    typer.echo(f"log_file\tOK\t{log_path}")
+    typer.echo("Doctor")
+    typer.echo(f"  App home: {paths.root}")
+    typer.echo(f"  DB file: {paths.db_file}")
+    typer.echo(f"  Log file: {log_path}")
     with session_scope(engine):
-        typer.echo("sqlite\tOK\tconnected")
+        typer.echo("  SQLite: OK")
     try:
         git.ensure_git_repo(Path.cwd())
-        typer.echo(f"git\tOK\t{Path.cwd()} is repo")
+        typer.echo(f"  Git: OK ({Path.cwd()} is a repo)")
     except Exception:
-        typer.echo("git\tWARN\tcwd is not a git repo")
+        typer.echo("  Git: WARN (cwd is not a git repo)")
+        typer.echo("  Hint: run commands from your project repo when testing git behavior")
+
+
+@app.command("status")
+def status():
+    paths, _, engine, _, _ = _runtime()
+    with session_scope(engine) as session:
+        prompt_sources = PromptSourceService(session, paths, GitService()).list()
+        projects = ProjectService(session, GitService()).list()
+        agents = AgentService(session).list()
+        runs = RunService(session).list(limit=1)
+
+        typer.echo("Execforge Status")
+        typer.echo(f"  Home: {paths.root}")
+        typer.echo(f"  Prompt sources: {len(prompt_sources)}")
+        typer.echo(f"  Project repos: {len(projects)}")
+        typer.echo(f"  Agents: {len(agents)}")
+        if runs:
+            last = runs[0]
+            typer.echo(f"  Last run: #{last.id} status={last.status} task={last.task_id} started={last.started_at}")
+        else:
+            typer.echo("  Last run: none")
+
+        if not prompt_sources:
+            typer.echo("  Next: execforge prompt-source add <name> <repo-url>")
+        elif not projects:
+            typer.echo("  Next: execforge project add <name> <local-path>")
+        elif not agents:
+            typer.echo("  Next: execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>")
+        else:
+            typer.echo("  Next: execforge agent run <agent-name>")
+
+
+@app.command("start")
+def start():
+    """Quick guidance for first-time and daily use."""
+    typer.echo("Execforge Start")
+    typer.echo("  1) execforge init")
+    typer.echo("  2) execforge prompt-source add <name> <repo-url>")
+    typer.echo("  3) execforge prompt-source sync <name>")
+    typer.echo("  4) execforge project add <name> <local-path>")
+    typer.echo("  5) execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>")
+    typer.echo("  6) execforge agent run <name> or execforge agent loop <name>")
+    typer.echo("")
+    typer.echo("Run `execforge status` to see what is already configured.")
 
 
 @app.callback()
