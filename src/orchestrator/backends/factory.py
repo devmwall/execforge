@@ -24,9 +24,9 @@ def build_backend_registry(agent: AgentORM) -> dict[str, ExecutionBackend]:
         registry["shell"] = ShellBackend(command_template=command_template, allowed_commands=allowed)
 
     for tool, defaults in {
-        "claude": {"binary": "claude", "args": ["-p"]},
-        "codex": {"binary": "codex", "args": ["exec", "--prompt"]},
-        "opencode": {"binary": "opencode", "args": ["run", "--prompt"]},
+        "claude": {"binary": "claude", "args": ["-p"], "model_arg_name": None},
+        "codex": {"binary": "codex", "args": ["exec", "--prompt"], "model_arg_name": None},
+        "opencode": {"binary": "opencode", "args": ["run"], "model_arg_name": "--model"},
     }.items():
         cfg = backends_cfg.get(tool, {})
         if not cfg.get("enabled", False):
@@ -37,6 +37,7 @@ def build_backend_registry(agent: AgentORM) -> dict[str, ExecutionBackend]:
             args=list(cfg.get("args", defaults["args"])),
             prompt_arg_template=cfg.get("prompt_arg_template", "{prompt}"),
             requires_binary=bool(cfg.get("requires_binary", True)),
+            model_arg_name=cfg.get("model_arg_name", defaults["model_arg_name"]),
         )
 
     registry["mock"] = MockBackend()

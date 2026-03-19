@@ -13,6 +13,7 @@ from orchestrator.storage.models import AgentORM, PromptSourceORM, TaskORM
 
 
 PRIORITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+VALID_TASK_STATUSES = {"todo", "ready", "in_progress", "done", "failed", "blocked"}
 
 
 class TaskService:
@@ -137,8 +138,17 @@ class TaskService:
         return eligible[0] if eligible else None
 
     def mark_status(self, task: TaskORM, status: str) -> None:
+        if status not in VALID_TASK_STATUSES:
+            raise ValueError(f"Invalid task status: {status}")
         task.status = status
         task.updated_at = datetime.utcnow()
+
+    def set_status_by_id(self, task_id: int, status: str) -> TaskORM | None:
+        task = self.get(task_id)
+        if not task:
+            return None
+        self.mark_status(task, status)
+        return task
 
     def parse_raw_task(self, task: TaskORM) -> PromptTask:
         suffix = Path(task.source_path).suffix or ".md"

@@ -140,7 +140,7 @@ class GitService:
     def commit_all(self, path: Path, message: str) -> str | None:
         if self.is_clean(path):
             return None
-        add_result = run_command(["git", "add", "-A"], cwd=path, timeout=self.timeout_seconds)
+        add_result = run_command(["git", "add", "."], cwd=path, timeout=self.timeout_seconds)
         if add_result.code != 0:
             raise RepoError(add_result.stderr.strip() or "git add failed")
         commit_result = run_command(["git", "commit", "-m", message], cwd=path, timeout=self.timeout_seconds)

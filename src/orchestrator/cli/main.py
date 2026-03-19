@@ -51,12 +51,14 @@ app.add_typer(config_app, name="config")
 
 @agent_app.callback(invoke_without_command=True)
 def agent_root(ctx: Context):
+    """Default to listing agents when no subcommand is provided."""
     if ctx.invoked_subcommand is None:
         agent_list()
 
 
 @config_app.callback(invoke_without_command=True)
 def config_root(ctx: Context):
+    """Default to showing config when no subcommand is provided."""
     if ctx.invoked_subcommand is None:
         config_show()
 
@@ -262,6 +264,7 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
             "max_retries": 0,
             "stop_on_validation_failure": True,
             "pull_project_before_run": True,
+            "commit_after_each_step": True,
             "approval_mode": "semi-auto",
         }
 
@@ -299,6 +302,7 @@ def prompt_source_add(
     sync_strategy: str = "ff-only",
     clone_path: str = "",
 ):
+    """Add a new prompt source definition."""
     paths, _, engine, git, _ = _runtime()
     with session_scope(engine) as session:
         svc = PromptSourceService(session, paths, git)
@@ -315,6 +319,7 @@ def prompt_source_add(
 
 @prompt_source_app.command("list")
 def prompt_source_list():
+    """List configured prompt sources."""
     paths, _, engine, git, _ = _runtime()
     with session_scope(engine) as session:
         svc = PromptSourceService(session, paths, git)
@@ -331,6 +336,7 @@ def prompt_source_sync(
         help="Create and push prompt branch if it does not exist on origin",
     ),
 ):
+    """Sync a prompt source and discover task files."""
     paths, _, engine, git, _ = _runtime()
     with session_scope(engine) as session:
         svc = PromptSourceService(session, paths, git)
@@ -358,6 +364,7 @@ def prompt_source_sync(
 
 @project_app.command("add")
 def project_add(name: str, local_path: str, default_branch: str = "main", allowed_branch_pattern: str = "agent/*"):
+    """Register a local project repository."""
     _, _, engine, git, _ = _runtime()
     with session_scope(engine) as session:
         item = ProjectService(session, git).add(name, local_path, default_branch, allowed_branch_pattern)
@@ -366,6 +373,7 @@ def project_add(name: str, local_path: str, default_branch: str = "main", allowe
 
 @project_app.command("list")
 def project_list():
+    """List registered project repositories."""
     _, _, engine, git, _ = _runtime()
     with session_scope(engine) as session:
         for item in ProjectService(session, git).list():
@@ -384,6 +392,7 @@ def agent_add(
     enable_opencode: bool = False,
     enable_mock: bool = False,
 ):
+    """Create an agent using prompt source and project (name or id)."""
     paths, _, engine, git, _ = _runtime()
     model_settings: dict[str, object] = {
         "backend_priority": ["codex", "claude", "opencode", "shell", "mock"],
@@ -409,6 +418,7 @@ def agent_add(
         "max_retries": 0,
         "stop_on_validation_failure": True,
         "pull_project_before_run": True,
+        "commit_after_each_step": True,
         "approval_mode": "semi-auto",
     }
     with session_scope(engine) as session:
@@ -440,6 +450,7 @@ def agent_add(
 def agent_list(
     compact: bool = typer.Option(False, "--compact", help="Show one-line summary instead of full JSON blocks"),
 ):
+    """List agents with full config blocks."""
     _, _, engine, _, _ = _runtime()
     with session_scope(engine) as session:
         agents = AgentService(session).list()
@@ -496,6 +507,7 @@ def agent_update(
         help="Update agent config with key=value (repeatable)",
     ),
 ):
+    """Update agent configuration values."""
     if not set_pair:
         typer.echo("No updates provided. Use --set key=value")
         raise typer.Exit(code=2)
@@ -523,6 +535,7 @@ def agent_delete(
     agent: str,
     yes: bool = typer.Option(False, "--yes", help="Delete without confirmation"),
 ):
+    """Permanently delete an agent and its run history."""
     _, _, engine, _, _ = _runtime()
     with session_scope(engine) as session:
         svc = AgentService(session)
@@ -550,6 +563,7 @@ def agent_run(
     verbose: bool = typer.Option(False, "--verbose", help="Show backend/selection details"),
     debug: bool = typer.Option(False, "--debug", help="Show debug stream logs"),
 ):
+    """Run one execution cycle for an agent."""
     paths, config, engine, git, log_path = _runtime(console_debug=debug, force_debug_logging=debug)
     mode = "debug" if debug else ("verbose" if verbose else "default")
     with session_scope(engine) as session:
@@ -578,9 +592,10 @@ def agent_loop(
     reset_only_new_baseline: bool = typer.Option(
         False,
         "--reset-only-new-baseline",
-        help="Start loop with zero exclusions in only-new mode",
+        help="Reset baseline for first loop run, then continue only-new mode",
     ),
 ):
+    """Run an agent continuously on a polling interval."""
     paths, config, engine, git, log_path = _runtime(console_debug=debug, force_debug_logging=debug)
     mode = "debug" if debug else ("verbose" if verbose else "default")
     with session_scope(engine) as session:
@@ -600,6 +615,7 @@ def agent_loop(
 
 @task_app.command("list")
 def task_list(status: str = ""):
+    """List discovered tasks, optionally filtered by status."""
     _, _, engine, _, _ = _runtime()
     with session_scope(engine) as session:
         tasks = TaskService(session).list(status or None)
@@ -610,6 +626,7 @@ def task_list(status: str = ""):
 
 @task_app.command("inspect")
 def task_inspect(task_id: int):
+    """Inspect details for a single task."""
     _, _, engine, _, _ = _runtime()
     with session_scope(engine) as session:
         task = TaskService(session).get(task_id)
@@ -631,8 +648,33 @@ def task_inspect(task_id: int):
                 typer.echo(f"  - {step.id} [{step.type}] tools={prefs}")
 
 
+@task_app.command("set-status")
+def task_set_status(task_id: int, status: str):
+    """Update task status (todo, ready, in_progress, done, failed, blocked)."""
+    _, _, engine, _, _ = _runtime()
+    with session_scope(engine) as session:
+        service = TaskService(session)
+        try:
+            task = service.set_status_by_id(task_id, status)
+        except ValueError as exc:
+            typer.echo(str(exc))
+            raise typer.Exit(code=2)
+        if not task:
+            typer.echo("Task not found")
+            raise typer.Exit(code=2)
+        ref = task.external_id or f"task-{task.id}"
+        typer.echo(f"Updated {ref} to status={task.status}")
+
+
+@task_app.command("retry")
+def task_retry(task_id: int):
+    """Set a task back to todo so it can run again."""
+    task_set_status(task_id=task_id, status="todo")
+
+
 @run_app.command("list")
 def run_list(limit: int = 30):
+    """List recent execution runs."""
     _, _, engine, _, _ = _runtime()
     with session_scope(engine) as session:
         runs = RunService(session).list(limit=limit)
@@ -644,6 +686,7 @@ def run_list(limit: int = 30):
 
 @config_app.command("show")
 def config_show():
+    """Show current app configuration (sensitive fields masked)."""
     paths = get_app_paths()
     config = load_config(paths)
     typer.echo(f"home: {paths.root}")
@@ -663,6 +706,7 @@ def config_set(
         help="Set config using key=value (repeatable)",
     ),
 ):
+    """Set one or more app configuration values."""
     updates: dict[str, str] = {}
     if key and value is not None:
         updates[key] = value
@@ -687,6 +731,7 @@ def config_reset(
     key: list[str] = typer.Argument([], help="Config key(s) to reset"),
     all_keys: bool = typer.Option(False, "--all", help="Reset all keys to default values"),
 ):
+    """Reset one or more config keys to defaults."""
     if not all_keys and not key:
         typer.echo("Specify at least one key or pass --all")
         raise typer.Exit(code=2)
@@ -699,6 +744,7 @@ def config_reset(
 
 @config_app.command("keys")
 def config_keys():
+    """List editable config keys and metadata."""
     schema = get_config_schema()
     for key, spec in schema.items():
         sensitive = "yes" if spec.sensitive else "no"
@@ -707,6 +753,7 @@ def config_keys():
 
 @app.command("doctor")
 def doctor():
+    """Run environment and dependency health checks."""
     paths, _, engine, git, log_path = _runtime()
     typer.echo("Doctor")
     typer.echo(f"  App home: {paths.root}")
@@ -724,6 +771,7 @@ def doctor():
 
 @app.command("status")
 def status():
+    """Show a quick summary of current setup and last run."""
     paths, _, engine, _, _ = _runtime()
     with session_scope(engine) as session:
         prompt_sources = PromptSourceService(session, paths, GitService()).list()

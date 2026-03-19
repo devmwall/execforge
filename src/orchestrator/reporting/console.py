@@ -158,6 +158,8 @@ class ConsoleReporter:
                 self._print(f"  Task: {context.get('task_id')}")
             if context.get("branch"):
                 self._print(f"  Branch: {context.get('branch')}")
+            if context.get("push_enabled") is not None:
+                self._print(f"  Push Enabled: {str(context.get('push_enabled')).lower()}")
             if context.get("steps_total") is not None and context.get("steps_passed") is not None:
                 self._print(f"  Steps: {context.get('steps_passed')}/{context.get('steps_total')} passed")
             warnings = context.get("warnings", self.warnings_in_run)

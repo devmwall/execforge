@@ -21,12 +21,14 @@ class LlmCliBackend(ExecutionBackend):
         args: list[str] | None = None,
         prompt_arg_template: str = "{prompt}",
         requires_binary: bool = True,
+        model_arg_name: str | None = None,
     ):
         self.name = name
         self.binary = binary
         self.args = list(args or [])
         self.prompt_arg_template = prompt_arg_template
         self.requires_binary = requires_binary
+        self.model_arg_name = model_arg_name
 
     def execute_step(
         self,
@@ -40,7 +42,15 @@ class LlmCliBackend(ExecutionBackend):
             raise BackendError(f"Backend '{self.name}' unavailable: executable '{self.binary}' not found in PATH")
 
         prompt = self._resolve_prompt(step, task, prompt_root)
-        cmd = [self.binary, *self.args, self.prompt_arg_template.format(prompt=prompt)]
+        cmd = [self.binary, *self.args]
+
+        # Optional per-step model override: step.metadata["model"] = "provider/model"
+        # Example: model: ollama/llama3.2
+        step_model = step.metadata.get("model") if isinstance(step.metadata, dict) else None
+        if step_model and self.model_arg_name and not self._has_arg(self.model_arg_name):
+            cmd.extend([self.model_arg_name, str(step_model)])
+
+        cmd.append(self.prompt_arg_template.format(prompt=prompt))
         result = run_command(cmd, cwd=project_path, timeout=context.timeout_seconds)
         summary = f"{self.name} exited with code {result.code}"
         if result.code == 127:
@@ -72,3 +82,6 @@ class LlmCliBackend(ExecutionBackend):
                     return candidate.read_text(encoding="utf-8")
             raise BackendError(f"Prompt file not found for step '{step.id}': {step.prompt_file}")
         return task.description
+
+    def _has_arg(self, flag: str) -> bool:
+        return any(arg == flag or arg.startswith(f"{flag}=") for arg in self.args)

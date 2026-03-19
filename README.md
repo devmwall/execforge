@@ -143,10 +143,13 @@ steps:
   - id: summarize
     type: llm_summary
     tool_preferences: [codex, claude, opencode, mock]
+    model: ollama/llama3.2
 ---
 
 Create project scaffold.
 ```
+
+For OpenCode steps, `model` maps to `--model <provider/model>`.
 
 Optional task-level git overrides:
 
@@ -221,6 +224,8 @@ execforge agent delete test-agent --yes
 
 - `execforge task list`
 - `execforge task inspect <task-id>`
+- `execforge task set-status <task-id> <status>`
+- `execforge task retry <task-id>`
 - `execforge run list`
 - `execforge status`
 - `execforge start`
@@ -244,6 +249,8 @@ execforge task list
 execforge agent loop <agent-name> --all-eligible-prompts
 execforge agent loop <agent-name> --reset-only-new-baseline
 ```
+
+`--reset-only-new-baseline` applies to the first loop run, then loop returns to normal only-new behavior.
 
 ## Where state is stored
 

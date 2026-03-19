@@ -117,6 +117,7 @@ class AgentRunner:
                 eligible_filtered=eligible,
                 eligible_unfiltered=eligible_unfiltered,
                 excluded_count=len(exclude_task_ids or set()),
+                project_name=project.name,
             )
             self._emit(
                 logger,
@@ -175,6 +176,25 @@ class AgentRunner:
                 max_steps=agent.max_steps,
                 safety_settings=safety,
             )
+            commit_after_each_step = bool(safety.get("commit_after_each_step", True))
+            task_push_override = parsed_task.git.push_on_success
+            should_push = (
+                task_push_override
+                if task_push_override is not None
+                else (agent.push_policy == "on-success" and safety.get("allow_push", self.config.default_allow_push))
+            )
+            push_reason = (
+                "task override" if task_push_override is not None else "agent push_policy + allow_push"
+            )
+            if self.reporter.mode in {"verbose", "debug"}:
+                self._emit(
+                    logger,
+                    LogEvent(
+                        name="warning",
+                        message=f"push setting resolved: enabled={should_push} ({push_reason})",
+                        context={"branch": active_branch, "task_id": task_ref},
+                    ),
+                )
             backend_registry = build_backend_registry(agent)
             if self.reporter.mode in {"verbose", "debug"}:
                 self._emit(
@@ -184,23 +204,25 @@ class AgentRunner:
 
             self._emit(logger, LogEvent(name="steps_started", phase_index=5, phase_total=6, title="Executing steps"))
             step_executor = StepExecutor(backend_registry, default_backend_priority(agent))
-            step_results = step_executor.execute_steps(
-                steps=parsed_task.steps,
-                task=task,
-                project_path=Path(project.local_path),
-                prompt_root=Path(source.local_clone_path),
-                context=context,
-            )
+            step_results = []
 
             tool_invocations: list[dict] = []
-            for idx, step_result in enumerate(step_results, start=1):
+            for idx, step in enumerate(parsed_task.steps, start=1):
+                step_result = step_executor.execute_step(
+                    step=step,
+                    task=task,
+                    project_path=Path(project.local_path),
+                    prompt_root=Path(source.local_clone_path),
+                    context=context,
+                )
+                step_results.append(step_result)
                 self._emit(
                     logger,
                     LogEvent(
                         name="step_completed",
                         context={
                             "step_index": idx,
-                            "step_total": len(step_results),
+                            "step_total": len(parsed_task.steps),
                             "step": step_result.step_id,
                             "backend": step_result.backend,
                             "symbol": "✓" if step_result.success else "✗",
@@ -208,6 +230,19 @@ class AgentRunner:
                     ),
                 )
                 tool_invocations.extend(step_result.tool_invocations)
+
+                if not safety.get("dry_run", False) and commit_after_each_step:
+                    step_message_template = json.loads(agent.commit_policy_json or "{}").get(
+                        "step_message_template", "chore(agent): {task_ref} step {step_id}"
+                    )
+                    step_message = step_message_template.format(
+                        task_ref=task_ref,
+                        title=task.title.lower(),
+                        step_id=step_result.step_id,
+                    )
+                    step_commit_sha = self.git.commit_all(Path(project.local_path), step_message)
+                    if should_push:
+                        self.git.push(Path(project.local_path), active_branch)
 
             validations = json.loads(agent.validation_policy_json or "[]")
             validation_results = run_validation_pipeline(
@@ -236,19 +271,15 @@ class AgentRunner:
 
             commit_sha = None
             if not safety.get("dry_run", False):
-                template = json.loads(agent.commit_policy_json or "{}").get(
-                    "message_template", "feat(agent): complete {task_ref} {title}"
-                )
-                message = template.format(task_ref=task_ref, title=task.title.lower())
-                commit_sha = self.git.commit_all(Path(project.local_path), message)
-
-                task_push_override = parsed_task.git.push_on_success
-                should_push = (
-                    task_push_override
-                    if task_push_override is not None
-                    else (agent.push_policy == "on-success" and safety.get("allow_push", self.config.default_allow_push))
-                )
-                if should_push and commit_sha:
+                if commit_after_each_step:
+                    commit_sha = self.git.commit_all(Path(project.local_path), f"chore(agent): {task_ref} finalize")
+                else:
+                    template = json.loads(agent.commit_policy_json or "{}").get(
+                        "message_template", "feat(agent): complete {task_ref} {title}"
+                    )
+                    message = template.format(task_ref=task_ref, title=task.title.lower())
+                    commit_sha = self.git.commit_all(Path(project.local_path), message)
+                if should_push:
                     self.git.push(Path(project.local_path), active_branch)
 
             self.task_service.mark_status(task, "done")
@@ -277,6 +308,7 @@ class AgentRunner:
                         "steps_passed": len([s for s in step_results if s.success]),
                         "warnings": self.reporter.warnings_in_run,
                         "log_path": self.log_path,
+                        "push_enabled": should_push,
                     },
                 ),
             )
@@ -350,6 +382,7 @@ class AgentRunner:
         safety = json.loads(agent.safety_settings_json or "{}")
         exclude_task_ids: set[int] = set()
         initial_excluded = 0
+        reset_applied = False
         if only_new_prompts:
             if reset_only_new_baseline:
                 exclude_task_ids = set()
@@ -380,6 +413,23 @@ class AgentRunner:
         while True:
             self.run_once(agent, exclude_task_ids=exclude_task_ids)
             count += 1
+
+            # Reset baseline once, then continue in only-new mode from that point forward.
+            if only_new_prompts and reset_only_new_baseline and not reset_applied:
+                current = self.task_service.list(status=None)
+                exclude_task_ids = {t.id for t in current if t.prompt_source_id == agent.prompt_source_id}
+                reset_applied = True
+                self._emit(
+                    ContextAdapter(logging.getLogger("orchestrator.runner"), {"run_id": "", "agent": agent.name}),
+                    LogEvent(
+                        name="warning",
+                        message=(
+                            "reset-only-new-baseline applied for first run; "
+                            f"continuing with only-new mode and excluded_tasks={len(exclude_task_ids)}"
+                        ),
+                    ),
+                )
+
             if max_iterations and count >= max_iterations:
                 return
             self._emit(
@@ -424,6 +474,46 @@ class AgentRunner:
         task_ref = task.external_id or f"task-{task.id}"
         work_branch = task_git.work_branch or self.git.make_agent_branch_name(agent.name, task_ref)
 
+        # If dirty worktrees are allowed and we are already on the intended task branch,
+        # keep working there instead of forcing a base checkout that would fail.
+        if not require_clean and not is_clean:
+            try:
+                current = self.git.current_branch(repo_path)
+            except RepoError:
+                current = ""
+            if current == work_branch:
+                self._emit(
+                    logger,
+                    LogEvent(
+                        name="warning",
+                        message=(
+                            "continuing on existing dirty task branch; "
+                            "skipping base branch checkout/pull for this run"
+                        ),
+                        context={"branch": work_branch, "base_branch": base_branch, "task_id": task_ref},
+                    ),
+                )
+                return base_branch, work_branch
+
+            # If switching branches with dirty state, checkpoint current branch first.
+            if current and current != "HEAD":
+                checkpoint_message = (
+                    f"chore(agent): checkpoint before switching to {work_branch} for {task_ref}"
+                )
+                checkpoint_sha = self.git.commit_all(repo_path, checkpoint_message)
+                if checkpoint_sha:
+                    self._emit(
+                        logger,
+                        LogEvent(
+                            name="warning",
+                            message=(
+                                "dirty working tree checkpointed on current branch before branch switch; "
+                                f"branch={current} commit={checkpoint_sha[:8]}"
+                            ),
+                            context={"branch": current, "task_id": task_ref},
+                        ),
+                    )
+
         self.git.checkout_or_create_tracking_branch(repo_path, base_branch, create_and_push_if_missing=False)
         self.git.pull(repo_path, strategy="ff-only", branch=base_branch, bootstrap_missing_branch=False)
         allow_branch_create = safety.get("allow_branch_create", True)
@@ -453,7 +543,13 @@ class AgentRunner:
         eligible_filtered: list,
         eligible_unfiltered: list,
         excluded_count: int,
+        project_name: str,
     ) -> SelectionOutcome:
+        status_counts: dict[str, int] = {}
+        for task in source_tasks:
+            status = getattr(task, "status", "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+
         if selected_task_ref:
             return SelectionOutcome(
                 code="selected",
@@ -485,11 +581,44 @@ class AgentRunner:
                 discovered_count=discovered_count,
                 total_tasks_for_source=len(source_tasks),
             )
+        if source_tasks and status_counts.get("failed", 0) == len(source_tasks):
+            return SelectionOutcome(
+                code="all_failed",
+                reason="all discovered tasks are currently failed",
+                next_hint="retry one task with: execforge task retry <task-id>",
+                eligible_count=0,
+                excluded_count=excluded_count,
+                discovered_count=discovered_count,
+                total_tasks_for_source=len(source_tasks),
+            )
+        if source_tasks and status_counts.get("blocked", 0) == len(source_tasks):
+            return SelectionOutcome(
+                code="all_blocked",
+                reason="all discovered tasks are blocked",
+                next_hint="inspect dependencies with: execforge task inspect <task-id>",
+                eligible_count=0,
+                excluded_count=excluded_count,
+                discovered_count=discovered_count,
+                total_tasks_for_source=len(source_tasks),
+            )
         if source_tasks and all(getattr(t, "status", "") == "done" for t in source_tasks):
             return SelectionOutcome(
                 code="all_completed",
                 reason="all discovered tasks are already complete",
                 next_hint="add new todo tasks in the prompt source and sync again",
+                eligible_count=0,
+                excluded_count=excluded_count,
+                discovered_count=discovered_count,
+                total_tasks_for_source=len(source_tasks),
+            )
+        if source_tasks and (status_counts.get("todo", 0) + status_counts.get("ready", 0)) > 0 and len(eligible_unfiltered) == 0:
+            return SelectionOutcome(
+                code="tasks_not_actionable",
+                reason=(
+                    "tasks are present but none are actionable for this agent "
+                    f"(check target_repo and dependency rules for project '{project_name}')"
+                ),
+                next_hint="inspect a task with: execforge task inspect <task-id>",
                 eligible_count=0,
                 excluded_count=excluded_count,
                 discovered_count=discovered_count,
