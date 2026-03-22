@@ -58,6 +58,8 @@ jobs:
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
+          verbose: true
 
       - name: Publish to npm
         run: npm publish --access public
