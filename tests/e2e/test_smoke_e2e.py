@@ -12,7 +12,9 @@ from orchestrator.cli.main import app
 
 
 def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=str(cwd), text=True, capture_output=True, check=False)
+    return subprocess.run(
+        ["git", *args], cwd=str(cwd), text=True, capture_output=True, check=False
+    )
 
 
 def _ensure_git_identity(repo: Path) -> None:
@@ -68,13 +70,18 @@ Execute smoke flow.
     (prompt_repo / "tasks" / "task-001.md").write_text(task_text, encoding="utf-8")
 
 
-@pytest.mark.skipif(shutil.which("git") is None, reason="git is required for e2e smoke tests")
+@pytest.mark.skipif(
+    shutil.which("git") is None, reason="git is required for e2e smoke tests"
+)
 def test_execforge_e2e_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runner = CliRunner()
 
     app_home = tmp_path / "app-home"
     prompt_repo = tmp_path / "prompt-repo"
     project_repo = tmp_path / "project-repo"
+
+    # Pre-create app home so `execforge init` does not ask for confirmation.
+    app_home.mkdir(parents=True, exist_ok=True)
 
     _init_repo(prompt_repo)
     _write_prompt_task(prompt_repo)
@@ -86,22 +93,25 @@ def test_execforge_e2e_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setenv("AGENT_ORCHESTRATOR_HOME", str(app_home))
 
-    wizard_input = "\n".join(
-        [
-            "prompts",  # prompt source name
-            str(prompt_repo),  # prompt source git url/path
-            "",  # branch (default main)
-            "tasks",  # folder scope
-            "y",  # sync now
-            "n",  # bootstrap missing branch
-            "project",  # project name
-            str(project_repo),  # project path
-            "mock",  # execution profile
-            "",  # default shell command template
-            "n",  # add validation command
-            "agent",  # agent name
-        ]
-    ) + "\n"
+    wizard_input = (
+        "\n".join(
+            [
+                "prompts",  # prompt source name
+                str(prompt_repo),  # prompt source git url/path
+                "",  # branch (default main)
+                "tasks",  # folder scope
+                "y",  # sync now
+                "n",  # bootstrap missing branch
+                "project",  # project name
+                str(project_repo),  # project path
+                "mock",  # execution profile
+                "",  # default shell command template
+                "n",  # add validation command
+                "agent",  # agent name
+            ]
+        )
+        + "\n"
+    )
 
     result = runner.invoke(app, ["init"], input=wizard_input)
     assert result.exit_code == 0, result.output
@@ -143,7 +153,9 @@ def test_execforge_e2e_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert head.stdout.strip() == payload["commit"]
 
 
-def test_execforge_init_non_interactive_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_execforge_init_non_interactive_smoke(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     runner = CliRunner()
     app_home = tmp_path / "app-home"
     monkeypatch.setenv("AGENT_ORCHESTRATOR_HOME", str(app_home))
