@@ -67,19 +67,21 @@ def test_reject_invalid_updates(tmp_path: Path) -> None:
         update_config_values(paths, {"log_level": "LOUD"})
 
 
-def test_masks_sensitive_fields(tmp_path: Path) -> None:
+def test_display_dict_contains_config_fields(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
-    cfg = update_config_values(paths, {"claude_api_key": "super-secret-token"})
+    cfg = load_config(paths)
     display = config_to_display_dict(cfg, mask_sensitive=True)
-    assert display["claude_api_key"] == "********"
-
-    unmasked = config_to_display_dict(cfg, mask_sensitive=False)
-    assert unmasked["claude_api_key"] == "super-secret-token"
+    assert "log_level" in display
+    assert "default_timeout_seconds" in display
+    assert "default_require_clean_tree" in display
+    assert "default_allow_push" in display
 
 
 def test_reset_defaults(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
-    cfg = update_config_values(paths, {"default_allow_push": "true", "log_level": "DEBUG"})
+    cfg = update_config_values(
+        paths, {"default_allow_push": "true", "log_level": "DEBUG"}
+    )
     assert cfg.default_allow_push is True
     assert cfg.log_level == "DEBUG"
 

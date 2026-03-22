@@ -35,9 +35,6 @@ class AppConfig:
     default_timeout_seconds: int = 900
     default_require_clean_tree: bool = True
     default_allow_push: bool = False
-    claude_api_key: str | None = None
-    codex_api_key: str | None = None
-    opencode_api_key: str | None = None
 
 
 @dataclass(slots=True)
@@ -114,33 +111,18 @@ def get_config_schema() -> dict[str, ConfigFieldSpec]:
             default=False,
             description="Allow push by default",
         ),
-        "claude_api_key": ConfigFieldSpec(
-            key="claude_api_key",
-            value_type=str,
-            default=None,
-            sensitive=True,
-            description="Optional Claude API key",
-        ),
-        "codex_api_key": ConfigFieldSpec(
-            key="codex_api_key",
-            value_type=str,
-            default=None,
-            sensitive=True,
-            description="Optional Codex API key",
-        ),
-        "opencode_api_key": ConfigFieldSpec(
-            key="opencode_api_key",
-            value_type=str,
-            default=None,
-            sensitive=True,
-            description="Optional OpenCode API key",
-        ),
     }
 
 
 def get_app_paths() -> AppPaths:
-    override = os.environ.get("AGENT_ORCHESTRATOR_HOME") or os.environ.get("ORCHESTRATOR_HOME")
-    root = Path(override).expanduser() if override else Path(user_data_dir(APP_NAME, APP_NAME))
+    override = os.environ.get("AGENT_ORCHESTRATOR_HOME") or os.environ.get(
+        "ORCHESTRATOR_HOME"
+    )
+    root = (
+        Path(override).expanduser()
+        if override
+        else Path(user_data_dir(APP_NAME, APP_NAME))
+    )
     return AppPaths(
         root=root,
         db_file=root / "app.db",
@@ -209,13 +191,17 @@ def _serialize_toml(config: AppConfig) -> str:
 def save_config(paths: AppPaths, config: AppConfig) -> None:
     text = _serialize_toml(config)
     paths.config_file.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=str(paths.config_file.parent)) as tmp:
+    with tempfile.NamedTemporaryFile(
+        "w", delete=False, encoding="utf-8", dir=str(paths.config_file.parent)
+    ) as tmp:
         tmp.write(text)
         tmp_path = Path(tmp.name)
     tmp_path.replace(paths.config_file)
 
 
-def config_to_display_dict(config: AppConfig, mask_sensitive: bool = True) -> dict[str, Any]:
+def config_to_display_dict(
+    config: AppConfig, mask_sensitive: bool = True
+) -> dict[str, Any]:
     data = asdict(config)
     schema = get_config_schema()
     out: dict[str, Any] = {}
@@ -233,7 +219,9 @@ def update_config_values(paths: AppPaths, updates: dict[str, str]) -> AppConfig:
     unknown = [k for k in updates if k not in schema]
     if unknown:
         known = ", ".join(sorted(schema.keys()))
-        raise ConfigError(f"Unknown config key(s): {', '.join(unknown)}. Known keys: {known}")
+        raise ConfigError(
+            f"Unknown config key(s): {', '.join(unknown)}. Known keys: {known}"
+        )
 
     config = load_config(paths)
     data = asdict(config)
