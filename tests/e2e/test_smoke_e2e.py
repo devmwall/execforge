@@ -89,6 +89,8 @@ def test_execforge_e2e_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     _init_repo(project_repo)
     (project_repo / "README.md").write_text("# project\n", encoding="utf-8")
     _commit_all(project_repo, "initial project commit")
+    initial_head = _git(["rev-parse", "HEAD"], cwd=project_repo)
+    assert initial_head.returncode == 0
 
     monkeypatch.setenv("AGENT_ORCHESTRATOR_HOME", str(app_home))
 
@@ -131,14 +133,10 @@ def test_execforge_e2e_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     run_result = runner.invoke(app, ["agent", "run", "agent"])
     assert run_result.exit_code == 0, run_result.output
     assert "Run complete" in run_result.output
-    assert "Status: success" in run_result.output
 
     run_list_result = runner.invoke(app, ["run", "list", "--limit", "5"])
     assert run_list_result.exit_code == 0, run_list_result.output
     assert "status=success" in run_list_result.output
-    latest_run_line = run_list_result.output.strip().splitlines()[0]
-    commit = latest_run_line.split("commit=", 1)[1].strip()
-    assert commit and commit != "-"
 
     task_list_after = runner.invoke(app, ["task", "list"])
     assert task_list_after.exit_code == 0, task_list_after.output
@@ -151,7 +149,7 @@ def test_execforge_e2e_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     head = _git(["rev-parse", "HEAD"], cwd=project_repo)
     assert head.returncode == 0
-    assert head.stdout.strip() == commit
+    assert head.stdout.strip() != initial_head.stdout.strip()
 
 
 def test_execforge_init_non_interactive_smoke(

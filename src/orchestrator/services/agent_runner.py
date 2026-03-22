@@ -665,15 +665,32 @@ class AgentRunner:
                         ),
                     )
 
-        self.git.checkout_or_create_tracking_branch(
-            repo_path, base_branch, create_and_push_if_missing=False
-        )
-        self.git.pull(
-            repo_path,
-            strategy="ff-only",
-            branch=base_branch,
-            bootstrap_missing_branch=False,
-        )
+        if self.git.local_branch_exists(repo_path, base_branch):
+            self.git.checkout_branch(repo_path, base_branch)
+        else:
+            self.git.checkout_or_create_tracking_branch(
+                repo_path, base_branch, create_and_push_if_missing=False
+            )
+        if safety.get("pull_project_before_run", True):
+            try:
+                self.git.pull(
+                    repo_path,
+                    strategy="ff-only",
+                    branch=base_branch,
+                    bootstrap_missing_branch=False,
+                )
+            except RepoError as exc:
+                if "No git remote configured" not in str(exc):
+                    raise
+                self._emit(
+                    logger,
+                    LogEvent(
+                        name="warning",
+                        message=(
+                            "project repo has no remote configured; skipping pull before run"
+                        ),
+                    ),
+                )
         allow_branch_create = safety.get("allow_branch_create", True)
         self.git.checkout_or_create_branch(
             repo_path,
