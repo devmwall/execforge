@@ -354,7 +354,7 @@ This repo includes GitHub Actions pipelines:
 
 Publishing auth:
 
-- `.github/workflows/publish-pypi.yml` uses Trusted Publishing (OIDC) for both PyPI and npm; no `PYPI_API_TOKEN` or `NPM_TOKEN` secret is required once trusted publishers are configured on each registry.
+- `.github/workflows/publish-pypi.yml` uses Trusted Publishing (OIDC) for PyPI and `NPM_TOKEN` for npm.
 - `.github/workflows/publish-testpypi.yml` currently uses `TEST_PYPI_API_TOKEN`.
 
 Typical release flow:
