@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -131,13 +130,15 @@ def test_execforge_e2e_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     run_result = runner.invoke(app, ["agent", "run", "agent"])
     assert run_result.exit_code == 0, run_result.output
-    payload = json.loads(run_result.output)
-    assert payload["status"] == "success"
-    assert payload["commit"]
+    assert "Run complete" in run_result.output
+    assert "Status: success" in run_result.output
 
     run_list_result = runner.invoke(app, ["run", "list", "--limit", "5"])
     assert run_list_result.exit_code == 0, run_list_result.output
     assert "status=success" in run_list_result.output
+    latest_run_line = run_list_result.output.strip().splitlines()[0]
+    commit = latest_run_line.split("commit=", 1)[1].strip()
+    assert commit and commit != "-"
 
     task_list_after = runner.invoke(app, ["task", "list"])
     assert task_list_after.exit_code == 0, task_list_after.output
@@ -150,7 +151,7 @@ def test_execforge_e2e_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     head = _git(["rev-parse", "HEAD"], cwd=project_repo)
     assert head.returncode == 0
-    assert head.stdout.strip() == payload["commit"]
+    assert head.stdout.strip() == commit
 
 
 def test_execforge_init_non_interactive_smoke(
