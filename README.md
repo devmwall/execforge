@@ -18,10 +18,10 @@ Choose one:
 
 ```bash
 # recommended
-pipx install agent-orchestrator
+pipx install execforge
 
 # or
-pip install agent-orchestrator
+pip install execforge
 
 # local dev
 pip install -e .
