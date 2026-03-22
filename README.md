@@ -23,6 +23,9 @@ pipx install execforge
 # or
 pip install execforge
 
+# npm (requires Python 3.11+ installed)
+npm install -g execforge
+
 # local dev
 pip install -e .
 ```
@@ -216,43 +219,87 @@ execforge agent update test-agent --set safety_settings.allow_push=true
 execforge agent delete test-agent --yes
 ```
 
-## Commands by workflow
+## Complete command + config reference (grouped by task)
 
-### Setup
+```text
+Setup and health
+- execforge init [--interactive/--no-interactive]
+  Initialize app home, SQLite DB, and run first-time setup wizard.
+- execforge start
+  Print the guided first-time command sequence.
+- execforge status
+  Show setup counts and last run summary.
+- execforge doctor
+  Check app paths, SQLite access, and git environment.
 
-- `execforge init`
-- `execforge doctor`
+Prompt sources (task origin repos)
+- execforge prompt-source add <name> <repo-url> [branch] [folder_scope] [sync_strategy] [clone_path]
+  Register a prompt source definition.
+- execforge prompt-source list
+  List configured prompt sources.
+- execforge prompt-source sync <name-or-id> [--bootstrap-missing-branch]
+  Pull/clone source and discover task files.
 
-### Prompt sources (task origin)
+Project repos (code targets)
+- execforge project add <name> <local-path> [default_branch] [allowed_branch_pattern]
+  Register a local git repo as an execution target.
+- execforge project list
+  List configured project repos.
 
-- `execforge prompt-source add`
-- `execforge prompt-source list`
-- `execforge prompt-source sync`
+Agents (execution profiles)
+- execforge agent
+  Alias for execforge agent list.
+- execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id> [options]
+  Create an agent linked to one prompt source and one project.
+- execforge agent list [--compact]
+  List agents (JSON blocks or one-line compact view).
+- execforge agent update <agent-name-or-id> --set key=value [--set key=value ...]
+  Update agent fields and nested JSON config.
+- execforge agent delete <agent-name-or-id> [--yes]
+  Delete an agent and its run history.
+- execforge agent run <agent-name-or-id> [--verbose] [--debug]
+  Execute one run cycle.
+- execforge agent loop <agent-name-or-id> [interval_seconds] [max_iterations] [--verbose] [--debug] [--only-new-prompts/--all-eligible-prompts] [--reset-only-new-baseline]
+  Run continuously on a polling interval.
 
-### Project repos (code targets)
+Tasks and runs
+- execforge task list [status]
+  List discovered tasks, optionally filtered by status.
+- execforge task inspect <task-id>
+  Show parsed task details and steps.
+- execforge task set-status <task-id> <status>
+  Set status to one of: todo, ready, in_progress, done, failed, blocked.
+- execforge task retry <task-id>
+  Shortcut that sets task status back to todo.
+- execforge run list [limit]
+  Show recent run history rows.
 
-- `execforge project add`
-- `execforge project list`
+App config commands
+- execforge config
+  Alias for execforge config show.
+- execforge config show
+  Show current app config and key paths.
+- execforge config keys
+  List editable app config keys and defaults.
+- execforge config set <key> <value>
+  Set one config key.
+- execforge config set --set key=value [--set key=value ...]
+  Set multiple config keys in one command.
+- execforge config reset <key> [<key> ...]
+  Reset selected keys to defaults.
+- execforge config reset --all
+  Reset all app config keys to defaults.
 
-### Agents (execution profiles)
+Editable app config keys (execforge config set)
+- log_level: string, default INFO
+- default_timeout_seconds: integer, default 900
+- default_require_clean_tree: boolean, default true
+- default_allow_push: boolean, default false
 
-- `execforge agent add`
-- `execforge agent list`
-- `execforge agent list --compact`
-- `execforge agent update`
-- `execforge agent delete`
-- `execforge agent run <agent-name-or-id>`
-- `execforge agent loop <agent-name-or-id>`
-
-### Task and run inspection
-
-- `execforge task list`
-- `execforge task inspect <task-id>`
-- `execforge task set-status <task-id> <status>`
-- `execforge task retry <task-id>`
-- `execforge run list`
-- `execforge status`
-- `execforge start`
+Common agent update keys (execforge agent update --set ...)
+- Top-level: name, execution_backend, task_selector_strategy, push_policy, autonomy_level, max_steps, active
+- Nested JSON maps: model_settings.<key>, safety_settings.<key>, commit_policy.<key>
+```
 
 ## When nothing runs
 
@@ -297,18 +344,19 @@ export AGENT_ORCHESTRATOR_HOME=~/.agent-orchestrator
 - `docs/USAGE_WALKTHROUGH.md` - practical end-to-end flow
 - `docs/ARCHITECTURE.md` - implementation layout
 
-## CI/CD and PyPI publish
+## CI/CD and package publish
 
 This repo includes GitHub Actions pipelines:
 
-- `.github/workflows/ci.yml` - lint, tests, package build, and `twine check`
+- `.github/workflows/ci.yml` - lint, tests, Python package build, `twine check`, and npm package dry-run
 - `.github/workflows/publish-testpypi.yml` - manual publish to TestPyPI
-- `.github/workflows/publish-pypi.yml` - publish to PyPI on release (and manual dispatch)
+- `.github/workflows/publish-pypi.yml` - publish to PyPI and npm on release (and manual dispatch)
 
 Required repository secrets:
 
 - `TEST_PYPI_API_TOKEN` for TestPyPI publishing
 - `PYPI_API_TOKEN` for PyPI publishing
+- `NPM_TOKEN` for npm publishing
 
 Typical release flow:
 

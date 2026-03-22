@@ -1,4 +1,4 @@
-name: Publish PyPI
+name: Publish PyPI and npm
 
 on:
   release:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish:
+  publish-python-and-npm:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,6 +20,32 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify Python and npm versions match
+        run: |
+          python - <<'PY'
+          import json
+          import tomllib
+
+          with open("pyproject.toml", "rb") as f:
+              pyproject = tomllib.load(f)
+          with open("package.json", "r", encoding="utf-8") as f:
+              package = json.load(f)
+
+          py_version = pyproject["project"]["version"]
+          npm_version = package["version"]
+          if py_version != npm_version:
+              raise SystemExit(
+                  f"Version mismatch: pyproject.toml={py_version} package.json={npm_version}"
+              )
+          print(f"Version OK: {py_version}")
+          PY
+
       - name: Build distributions
         run: |
           python -m pip install --upgrade pip
@@ -32,3 +58,8 @@ jobs:
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
