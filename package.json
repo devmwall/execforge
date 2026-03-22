@@ -1,6 +1,6 @@
 {
   "name": "execforge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Execforge CLI for autonomous repo orchestration",
   "license": "MIT",
   "repository": {
