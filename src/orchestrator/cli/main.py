@@ -448,12 +448,21 @@ def project_add(
     local_path: str,
     default_branch: str = "main",
     allowed_branch_pattern: str = "agent/*",
+    workspace: bool = typer.Option(
+        False,
+        "--workspace",
+        help="Treat local-path as a parent workspace folder instead of a git repo",
+    ),
 ):
     """Register a local project repository."""
     _, _, engine, git, _ = _runtime()
     with session_scope(engine) as session:
         item = ProjectService(session, git).add(
-            name, local_path, default_branch, allowed_branch_pattern
+            name,
+            local_path,
+            default_branch,
+            allowed_branch_pattern,
+            workspace=workspace,
         )
         typer.echo(f"Added project repo #{item.id}: {item.name}")
 
@@ -497,6 +506,7 @@ def agent_add(
         model_settings["command_template"] = command_template
     safety_settings = {
         "dry_run": False,
+        "workspace_mode": False,
         "max_files_changed": 100,
         "max_commits_per_run": 1,
         "require_clean_working_tree": False,

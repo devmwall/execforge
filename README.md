@@ -89,6 +89,9 @@ execforge prompt-source sync prompts --bootstrap-missing-branch
 
 ```bash
 execforge project add app ~/src/my-app
+
+# workspace mode (parent folder with multiple child repos)
+execforge project add mono ~/src --workspace
 ```
 
 ### 4) Create an agent
@@ -241,8 +244,8 @@ Prompt sources (task origin repos)
   Pull/clone source and discover task files.
 
 Project repos (code targets)
-- execforge project add <name> <local-path> [default_branch] [allowed_branch_pattern]
-  Register a local git repo as an execution target.
+- execforge project add <name> <local-path> [default_branch] [allowed_branch_pattern] [--workspace]
+  Register either a local git repo, or a parent workspace folder when --workspace is set.
 - execforge project list
   List configured project repos.
 
@@ -299,6 +302,10 @@ Editable app config keys (execforge config set)
 Common agent update keys (execforge agent update --set ...)
 - Top-level: name, execution_backend, task_selector_strategy, push_policy, autonomy_level, max_steps, active
 - Nested JSON maps: model_settings.<key>, safety_settings.<key>, commit_policy.<key>
+
+Workspace mode toggle (agent-level):
+
+- `execforge agent update <agent-name> --set safety_settings.workspace_mode=true`
 ```
 
 ## When nothing runs
@@ -362,7 +369,7 @@ Typical release flow:
 ```bash
 # 1) bump version in pyproject.toml
 # 2) commit and tag
-git tag v0.1.2
+git tag v0.1.3
 git push origin main --tags
 
 # 3) create/publish a GitHub Release for that tag

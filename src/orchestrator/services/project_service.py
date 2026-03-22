@@ -5,6 +5,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from orchestrator.exceptions import RepoError
 from orchestrator.git.service import GitService
 from orchestrator.storage.models import ProjectRepoORM
 
@@ -20,9 +21,16 @@ class ProjectService:
         local_path: str,
         default_branch: str = "main",
         allowed_branch_pattern: str = "agent/*",
+        workspace: bool = False,
     ) -> ProjectRepoORM:
         repo_path = Path(local_path).expanduser().resolve()
-        self.git.ensure_git_repo(repo_path)
+        if workspace:
+            if not repo_path.exists() or not repo_path.is_dir():
+                raise RepoError(
+                    f"Workspace path does not exist or is not a directory: {repo_path}"
+                )
+        else:
+            self.git.ensure_git_repo(repo_path)
         item = ProjectRepoORM(
             name=name,
             local_path=str(repo_path),
@@ -35,7 +43,11 @@ class ProjectService:
         return item
 
     def list(self) -> list[ProjectRepoORM]:
-        return list(self.session.scalars(select(ProjectRepoORM).order_by(ProjectRepoORM.id)).all())
+        return list(
+            self.session.scalars(
+                select(ProjectRepoORM).order_by(ProjectRepoORM.id)
+            ).all()
+        )
 
     def get(self, repo_id_or_name: str) -> ProjectRepoORM | None:
         stmt = select(ProjectRepoORM).where(ProjectRepoORM.name == repo_id_or_name)

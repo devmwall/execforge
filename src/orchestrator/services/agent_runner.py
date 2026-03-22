@@ -65,6 +65,9 @@ class AgentRunner:
         if not source:
             raise OrchestratorError(f"Prompt source not found for agent {agent.name}")
 
+        safety = json.loads(agent.safety_settings_json or "{}")
+        workspace_mode = bool(safety.get("workspace_mode", False))
+
         run = self.run_service.create(agent.id, None)
         logger = ContextAdapter(
             logging.getLogger("orchestrator.runner"),
@@ -88,6 +91,7 @@ class AgentRunner:
                     "agent": agent.name,
                     "project": project.name,
                     "prompt_source": source.name,
+                    "workspace_mode": workspace_mode,
                 },
             ),
         )
@@ -125,7 +129,7 @@ class AgentRunner:
                     title="Validating project repo",
                 ),
             )
-            self._refresh_project_repo(project, logger)
+            self._refresh_project_repo(project, logger, workspace_mode=workspace_mode)
 
             self._emit(
                 logger,
@@ -214,9 +218,12 @@ class AgentRunner:
                     title="Preparing branch",
                 ),
             )
-            base_branch, active_branch = self._prepare_repo(
-                agent, project, task, parsed_task.git, logger
-            )
+            if workspace_mode:
+                base_branch, active_branch = "(workspace)", "(workspace)"
+            else:
+                base_branch, active_branch = self._prepare_repo(
+                    agent, project, task, parsed_task.git, logger
+                )
             self._emit(
                 logger,
                 LogEvent(
@@ -231,7 +238,6 @@ class AgentRunner:
             if not parsed_task.steps:
                 raise BackendError(f"Task '{task.source_path}' has no executable steps")
 
-            safety = json.loads(agent.safety_settings_json or "{}")
             context = BackendContext(
                 run_id=run.id,
                 timeout_seconds=int(
@@ -255,6 +261,10 @@ class AgentRunner:
                 if task_push_override is not None
                 else "agent push_policy + allow_push"
             )
+            if workspace_mode:
+                commit_after_each_step = False
+                should_push = False
+                push_reason = "workspace mode disables commit/push"
             if self.reporter.mode in {"verbose", "debug"}:
                 self._emit(
                     logger,
@@ -365,7 +375,7 @@ class AgentRunner:
                 }
 
             commit_sha = None
-            if not safety.get("dry_run", False):
+            if not safety.get("dry_run", False) and not workspace_mode:
                 if commit_after_each_step:
                     commit_sha = self.git.commit_all(
                         Path(project.local_path), f"chore(agent): {task_ref} finalize"
@@ -488,6 +498,7 @@ class AgentRunner:
         project = self.session.get(ProjectRepoORM, agent.project_repo_id)
         source = self.session.get(PromptSourceORM, agent.prompt_source_id)
         safety = json.loads(agent.safety_settings_json or "{}")
+        workspace_mode = bool(safety.get("workspace_mode", False))
         exclude_task_ids: set[int] = set()
         initial_excluded = 0
         reset_applied = False
@@ -522,7 +533,11 @@ class AgentRunner:
                         "require_clean_working_tree",
                         self.config.default_require_clean_tree,
                     ),
-                    "branch_strategy": "agent/<agent-name>/<task-id>",
+                    "branch_strategy": (
+                        "workspace (no auto branch prep)"
+                        if workspace_mode
+                        else "agent/<agent-name>/<task-id>"
+                    ),
                 },
             ),
         )
@@ -701,17 +716,53 @@ class AgentRunner:
         return base_branch, work_branch
 
     def _refresh_project_repo(
-        self, project: ProjectRepoORM, logger: ContextAdapter
+        self,
+        project: ProjectRepoORM,
+        logger: ContextAdapter,
+        workspace_mode: bool = False,
     ) -> None:
         repo_path = Path(project.local_path)
+        if workspace_mode:
+            if not repo_path.exists() or not repo_path.is_dir():
+                raise RepoError(
+                    f"Workspace path does not exist or is not a directory: {repo_path}"
+                )
+            child_repos = self._workspace_child_git_repos(repo_path)
+            self._emit(
+                logger,
+                LogEvent(
+                    name="repo_validated",
+                    context={
+                        "mode": "workspace",
+                        "workspace_root": str(repo_path),
+                        "child_repo_count": len(child_repos),
+                    },
+                ),
+            )
+            return
+
         self.git.ensure_git_repo(repo_path)
         try:
             current = self.git.current_branch(repo_path)
         except RepoError:
             current = "(unborn)"
         self._emit(
-            logger, LogEvent(name="repo_validated", context={"current_branch": current})
+            logger,
+            LogEvent(
+                name="repo_validated",
+                context={"mode": "repo", "current_branch": current},
+            ),
         )
+
+    def _workspace_child_git_repos(self, root: Path) -> list[Path]:
+        repos: list[Path] = []
+        for child in sorted(root.iterdir()):
+            if not child.is_dir():
+                continue
+            git_dir = child / ".git"
+            if git_dir.is_dir() or git_dir.is_file():
+                repos.append(child)
+        return repos
 
     def _extract_step_id(self, error_message: str) -> str:
         match = re.search(r"Step '([^']+)'", error_message)
