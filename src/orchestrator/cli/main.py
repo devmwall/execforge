@@ -7,8 +7,19 @@ import shutil
 import typer
 from typer import Context
 
-from orchestrator.config import AppConfig, ensure_app_dirs, get_app_paths, load_config, save_config
-from orchestrator.config import config_to_display_dict, get_config_schema, reset_config_values, update_config_values
+from orchestrator.config import (
+    AppConfig,
+    ensure_app_dirs,
+    get_app_paths,
+    load_config,
+    save_config,
+)
+from orchestrator.config import (
+    config_to_display_dict,
+    get_config_schema,
+    reset_config_values,
+    update_config_values,
+)
 from orchestrator.exceptions import ConfigError, OrchestratorError
 from orchestrator.git.service import GitService
 from orchestrator.logging_setup import configure_logging
@@ -31,14 +42,37 @@ app = typer.Typer(
         "  2) execforge prompt-source add ... && execforge prompt-source sync ...\n"
         "  3) execforge project add ...\n"
         "  4) execforge agent add ...\n"
-        "  5) execforge agent run <agent> or execforge agent loop <agent>"
+        "  5) execforge agent run <agent> or execforge agent loop <agent>\n\n"
+        "Examples:\n"
+        "  execforge agent list\n"
+        "  execforge agent run ollama-test\n"
+        "  execforge agent loop ollama-test --all-eligible-prompts\n"
+        "  execforge run list\n"
+        "  execforge status"
     )
 )
 prompt_source_app = typer.Typer(help="Manage prompt sources")
 project_app = typer.Typer(help="Manage project repositories")
-agent_app = typer.Typer(help="Manage and run agents")
+agent_app = typer.Typer(
+    help=(
+        "Manage and run agents.\n\n"
+        "Examples:\n"
+        "  execforge agent\n"
+        "  execforge agent list --compact\n"
+        "  execforge agent run ollama-test\n"
+        "  execforge agent loop ollama-test --all-eligible-prompts"
+    )
+)
 task_app = typer.Typer(help="Inspect discovered tasks")
-run_app = typer.Typer(help="Inspect execution runs")
+run_app = typer.Typer(
+    help=(
+        "Inspect execution runs (history and status), not agent execution.\n\n"
+        "Examples:\n"
+        "  execforge run list\n"
+        "  execforge run list --limit 100\n"
+        "  execforge agent run ollama-test"
+    )
+)
 config_app = typer.Typer(help="Configuration commands")
 
 app.add_typer(prompt_source_app, name="prompt-source")
@@ -83,7 +117,9 @@ def _detect_backend_binaries() -> dict[str, bool]:
     }
 
 
-def _wizard_model_settings(profile: str, command_template: str, detected: dict[str, bool]) -> dict[str, object]:
+def _wizard_model_settings(
+    profile: str, command_template: str, detected: dict[str, bool]
+) -> dict[str, object]:
     if profile == "mock":
         return {
             "backend_priority": ["mock", "shell"],
@@ -133,7 +169,9 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
     """Initialize app directories, DB, and optional starter resources."""
     paths = get_app_paths()
     if interactive and not paths.root.exists():
-        create_home = typer.confirm(f"Create ExecForge home folder at '{paths.root}'?", default=True)
+        create_home = typer.confirm(
+            f"Create ExecForge home folder at '{paths.root}'?", default=True
+        )
         if not create_home:
             typer.echo("Initialization cancelled.")
             raise typer.Exit(code=1)
@@ -144,13 +182,17 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
     engine = make_engine(str(paths.db_file))
     init_db(engine)
     typer.echo(f"Initialized ExecForge home at {paths.root}")
-    typer.echo("Created: app.db, config.toml, logs/, prompt-sources/, runs/, cache/, locks/")
+    typer.echo(
+        "Created: app.db, config.toml, logs/, prompt-sources/, runs/, cache/, locks/"
+    )
 
     if not interactive:
         typer.echo("Next steps:")
         typer.echo("  1) execforge prompt-source add <name> <repo-url>")
         typer.echo("  2) execforge project add <name> <local-path>")
-        typer.echo("  3) execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>")
+        typer.echo(
+            "  3) execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>"
+        )
         typer.echo("  4) execforge agent run <name-or-id>")
         return
 
@@ -162,7 +204,9 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
 
         typer.echo("")
         typer.echo("Welcome to ExecForge setup.")
-        typer.echo("This wizard creates a usable prompt source, project repo, and agent.")
+        typer.echo(
+            "This wizard creates a usable prompt source, project repo, and agent."
+        )
 
         prompt_name = typer.prompt("Prompt source name", default="default-prompts")
         existing_source = ps_service.get(prompt_name)
@@ -172,8 +216,13 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
         else:
             repo_url = typer.prompt("Prompt source git URL (or local git path)")
             branch = typer.prompt("Prompt source branch", default="main")
-            folder_scope = typer.prompt("Prompt folder scope, repo-relative (blank for repo root, no leading /)", default="")
-            source = ps_service.add(prompt_name, repo_url, branch=branch, folder_scope=folder_scope or None)
+            folder_scope = typer.prompt(
+                "Prompt folder scope, repo-relative (blank for repo root, no leading /)",
+                default="",
+            )
+            source = ps_service.add(
+                prompt_name, repo_url, branch=branch, folder_scope=folder_scope or None
+            )
             typer.echo(f"Created prompt source #{source.id}: {source.name}")
 
         if typer.confirm("Sync prompt source now?", default=True):
@@ -182,22 +231,34 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
                 default=False,
             )
             try:
-                ps_service.sync(source, bootstrap_missing_branch=bootstrap_missing_branch)
+                ps_service.sync(
+                    source, bootstrap_missing_branch=bootstrap_missing_branch
+                )
                 discovered = TaskService(session).discover_and_upsert(source)
                 typer.echo(f"Sync complete, discovered {discovered} task file(s)")
             except Exception as exc:
                 message = str(exc)
-                if "Remote branch" in message and "not found" in message and not bootstrap_missing_branch:
+                if (
+                    "Remote branch" in message
+                    and "not found" in message
+                    and not bootstrap_missing_branch
+                ):
                     if typer.confirm(
                         f"Branch '{source.branch}' is missing on origin. Create and push it now?",
                         default=False,
                     ):
                         try:
                             ps_service.sync(source, bootstrap_missing_branch=True)
-                            discovered = TaskService(session).discover_and_upsert(source)
-                            typer.echo(f"Sync complete, discovered {discovered} task file(s)")
+                            discovered = TaskService(session).discover_and_upsert(
+                                source
+                            )
+                            typer.echo(
+                                f"Sync complete, discovered {discovered} task file(s)"
+                            )
                         except Exception as retry_exc:
-                            typer.echo(f"Warning: prompt source sync failed: {retry_exc}")
+                            typer.echo(
+                                f"Warning: prompt source sync failed: {retry_exc}"
+                            )
                             typer.echo(
                                 "You can retry later with: execforge prompt-source sync <name> --bootstrap-missing-branch"
                             )
@@ -218,7 +279,9 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
             project = existing_project
             typer.echo(f"Using existing project repo #{project.id}: {project.name}")
         else:
-            project_path = typer.prompt("Local project repo path", default=str(Path.cwd()))
+            project_path = typer.prompt(
+                "Local project repo path", default=str(Path.cwd())
+            )
             while True:
                 try:
                     project = proj_service.add(project_name, project_path)
@@ -234,10 +297,14 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
         typer.echo(f"  - codex: {'yes' if detected['codex'] else 'no'}")
         typer.echo(f"  - opencode: {'yes' if detected['opencode'] else 'no'}")
 
-        profile = typer.prompt(
-            "Execution profile [auto/shell/mock]",
-            default="auto",
-        ).strip().lower()
+        profile = (
+            typer.prompt(
+                "Execution profile [auto/shell/mock]",
+                default="auto",
+            )
+            .strip()
+            .lower()
+        )
         if profile not in {"auto", "shell", "mock"}:
             profile = "auto"
 
@@ -245,12 +312,16 @@ def init_cmd(interactive: bool = typer.Option(True, "--interactive/--no-interact
             "Default shell command template (optional, used when a shell step has no command)",
             default="",
         )
-        model_settings = _wizard_model_settings(profile=profile, command_template=default_command, detected=detected)
+        model_settings = _wizard_model_settings(
+            profile=profile, command_template=default_command, detected=detected
+        )
 
         validation_policy: list[dict] = []
         if typer.confirm("Add a validation command after each run?", default=False):
             validation_cmd = typer.prompt("Validation command (example: pytest -q)")
-            validation_policy.append({"type": "command", "name": "post-run", "command": validation_cmd})
+            validation_policy.append(
+                {"type": "command", "name": "post-run", "command": validation_cmd}
+            )
 
         safety_settings = {
             "dry_run": False,
@@ -324,7 +395,9 @@ def prompt_source_list():
     with session_scope(engine) as session:
         svc = PromptSourceService(session, paths, git)
         for item in svc.list():
-            typer.echo(f"{item.id}\t{item.name}\t{item.branch}\t{item.local_clone_path}\tactive={item.active}")
+            typer.echo(
+                f"{item.id}\t{item.name}\t{item.branch}\t{item.local_clone_path}\tactive={item.active}"
+            )
 
 
 @prompt_source_app.command("sync")
@@ -347,7 +420,11 @@ def prompt_source_sync(
             svc.sync(item, bootstrap_missing_branch=bootstrap_missing_branch)
         except Exception as exc:
             message = str(exc)
-            if "Remote branch" in message and "not found" in message and not bootstrap_missing_branch:
+            if (
+                "Remote branch" in message
+                and "not found" in message
+                and not bootstrap_missing_branch
+            ):
                 typer.echo(message)
                 typer.echo(
                     "Tip: re-run with --bootstrap-missing-branch to create and push the branch on origin"
@@ -355,19 +432,30 @@ def prompt_source_sync(
                 raise typer.Exit(code=2)
             raise
         count = TaskService(session).discover_and_upsert(item)
-        typer.echo(f"Synced prompt source '{item.name}' and discovered {count} task files")
+        typer.echo(
+            f"Synced prompt source '{item.name}' and discovered {count} task files"
+        )
         if count == 0:
-            typer.echo("Hint: no task files found. Check folder scope and task file format.")
+            typer.echo(
+                "Hint: no task files found. Check folder scope and task file format."
+            )
         else:
             typer.echo("Next: execforge task list")
 
 
 @project_app.command("add")
-def project_add(name: str, local_path: str, default_branch: str = "main", allowed_branch_pattern: str = "agent/*"):
+def project_add(
+    name: str,
+    local_path: str,
+    default_branch: str = "main",
+    allowed_branch_pattern: str = "agent/*",
+):
     """Register a local project repository."""
     _, _, engine, git, _ = _runtime()
     with session_scope(engine) as session:
-        item = ProjectService(session, git).add(name, local_path, default_branch, allowed_branch_pattern)
+        item = ProjectService(session, git).add(
+            name, local_path, default_branch, allowed_branch_pattern
+        )
         typer.echo(f"Added project repo #{item.id}: {item.name}")
 
 
@@ -377,7 +465,9 @@ def project_list():
     _, _, engine, git, _ = _runtime()
     with session_scope(engine) as session:
         for item in ProjectService(session, git).list():
-            typer.echo(f"{item.id}\t{item.name}\t{item.local_path}\tdefault={item.default_branch}")
+            typer.echo(
+                f"{item.id}\t{item.name}\t{item.local_path}\tdefault={item.default_branch}"
+            )
 
 
 @agent_app.command("add")
@@ -448,7 +538,9 @@ def agent_add(
 
 @agent_app.command("list")
 def agent_list(
-    compact: bool = typer.Option(False, "--compact", help="Show one-line summary instead of full JSON blocks"),
+    compact: bool = typer.Option(
+        False, "--compact", help="Show one-line summary instead of full JSON blocks"
+    ),
 ):
     """List agents with full config blocks."""
     _, _, engine, _, _ = _runtime()
@@ -476,15 +568,21 @@ def agent_list(
                     "name": prompt_source.name if prompt_source else None,
                     "repo_url": prompt_source.repo_url if prompt_source else None,
                     "branch": prompt_source.branch if prompt_source else None,
-                    "folder_scope": prompt_source.folder_scope if prompt_source else None,
-                    "sync_strategy": prompt_source.sync_strategy if prompt_source else None,
+                    "folder_scope": prompt_source.folder_scope
+                    if prompt_source
+                    else None,
+                    "sync_strategy": prompt_source.sync_strategy
+                    if prompt_source
+                    else None,
                     "active": prompt_source.active if prompt_source else None,
                 },
                 "project": {
                     "name": project.name if project else None,
                     "local_path": project.local_path if project else None,
                     "default_branch": project.default_branch if project else None,
-                    "allowed_branch_pattern": project.allowed_branch_pattern if project else None,
+                    "allowed_branch_pattern": project.allowed_branch_pattern
+                    if project
+                    else None,
                     "active": project.active if project else None,
                 },
                 "model_settings": json.loads(a.model_settings_json or "{}"),
@@ -560,11 +658,15 @@ def agent_delete(
 @agent_app.command("run")
 def agent_run(
     agent: str,
-    verbose: bool = typer.Option(False, "--verbose", help="Show backend/selection details"),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Show backend/selection details"
+    ),
     debug: bool = typer.Option(False, "--debug", help="Show debug stream logs"),
 ):
     """Run one execution cycle for an agent."""
-    paths, config, engine, git, log_path = _runtime(console_debug=debug, force_debug_logging=debug)
+    paths, config, engine, git, log_path = _runtime(
+        console_debug=debug, force_debug_logging=debug
+    )
     mode = "debug" if debug else ("verbose" if verbose else "default")
     with session_scope(engine) as session:
         svc = AgentService(session)
@@ -572,7 +674,14 @@ def agent_run(
         if not item:
             typer.echo("Agent not found")
             raise typer.Exit(code=2)
-        result = AgentRunner(session, paths, config, git, reporter=ConsoleReporter(mode=mode), log_path=str(log_path)).run_once(item)
+        result = AgentRunner(
+            session,
+            paths,
+            config,
+            git,
+            reporter=ConsoleReporter(mode=mode),
+            log_path=str(log_path),
+        ).run_once(item)
         if debug:
             typer.echo(json.dumps(result, indent=2))
 
@@ -582,7 +691,9 @@ def agent_loop(
     agent: str,
     interval_seconds: int = 30,
     max_iterations: int = 0,
-    verbose: bool = typer.Option(False, "--verbose", help="Show backend/selection details"),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Show backend/selection details"
+    ),
     debug: bool = typer.Option(False, "--debug", help="Show debug stream logs"),
     only_new_prompts: bool = typer.Option(
         True,
@@ -596,7 +707,9 @@ def agent_loop(
     ),
 ):
     """Run an agent continuously on a polling interval."""
-    paths, config, engine, git, log_path = _runtime(console_debug=debug, force_debug_logging=debug)
+    paths, config, engine, git, log_path = _runtime(
+        console_debug=debug, force_debug_logging=debug
+    )
     mode = "debug" if debug else ("verbose" if verbose else "default")
     with session_scope(engine) as session:
         svc = AgentService(session)
@@ -604,7 +717,14 @@ def agent_loop(
         if not item:
             typer.echo("Agent not found")
             raise typer.Exit(code=2)
-        AgentRunner(session, paths, config, git, reporter=ConsoleReporter(mode=mode), log_path=str(log_path)).run_loop(
+        AgentRunner(
+            session,
+            paths,
+            config,
+            git,
+            reporter=ConsoleReporter(mode=mode),
+            log_path=str(log_path),
+        ).run_loop(
             item,
             interval_seconds=interval_seconds,
             max_iterations=max_iterations or None,
@@ -644,7 +764,11 @@ def task_inspect(task_id: int):
         if parsed.steps:
             typer.echo("steps:")
             for step in parsed.steps:
-                prefs = ",".join(step.tool_preferences) if step.tool_preferences else "(default-priority)"
+                prefs = (
+                    ",".join(step.tool_preferences)
+                    if step.tool_preferences
+                    else "(default-priority)"
+                )
                 typer.echo(f"  - {step.id} [{step.type}] tools={prefs}")
 
 
@@ -692,7 +816,9 @@ def config_show():
     typer.echo(f"home: {paths.root}")
     typer.echo(f"db: {paths.db_file}")
     typer.echo(f"logs: {paths.logs_dir}")
-    typer.echo(json.dumps(config_to_display_dict(config, mask_sensitive=True), indent=2))
+    typer.echo(
+        json.dumps(config_to_display_dict(config, mask_sensitive=True), indent=2)
+    )
 
 
 @config_app.command("set")
@@ -723,13 +849,17 @@ def config_set(
     paths = get_app_paths()
     updated = update_config_values(paths, updates)
     typer.echo("Updated config:")
-    typer.echo(json.dumps(config_to_display_dict(updated, mask_sensitive=True), indent=2))
+    typer.echo(
+        json.dumps(config_to_display_dict(updated, mask_sensitive=True), indent=2)
+    )
 
 
 @config_app.command("reset")
 def config_reset(
     key: list[str] = typer.Argument([], help="Config key(s) to reset"),
-    all_keys: bool = typer.Option(False, "--all", help="Reset all keys to default values"),
+    all_keys: bool = typer.Option(
+        False, "--all", help="Reset all keys to default values"
+    ),
 ):
     """Reset one or more config keys to defaults."""
     if not all_keys and not key:
@@ -739,7 +869,9 @@ def config_reset(
     paths = get_app_paths()
     updated = reset_config_values(paths, keys=None if all_keys else key)
     typer.echo("Reset config:")
-    typer.echo(json.dumps(config_to_display_dict(updated, mask_sensitive=True), indent=2))
+    typer.echo(
+        json.dumps(config_to_display_dict(updated, mask_sensitive=True), indent=2)
+    )
 
 
 @config_app.command("keys")
@@ -748,7 +880,9 @@ def config_keys():
     schema = get_config_schema()
     for key, spec in schema.items():
         sensitive = "yes" if spec.sensitive else "no"
-        typer.echo(f"{key}\ttype={spec.value_type.__name__}\tsensitive={sensitive}\tdefault={spec.default}")
+        typer.echo(
+            f"{key}\ttype={spec.value_type.__name__}\tsensitive={sensitive}\tdefault={spec.default}"
+        )
 
 
 @app.command("doctor")
@@ -766,7 +900,9 @@ def doctor():
         typer.echo(f"  Git: OK ({Path.cwd()} is a repo)")
     except Exception:
         typer.echo("  Git: WARN (cwd is not a git repo)")
-        typer.echo("  Hint: run commands from your project repo when testing git behavior")
+        typer.echo(
+            "  Hint: run commands from your project repo when testing git behavior"
+        )
 
 
 @app.command("status")
@@ -786,7 +922,9 @@ def status():
         typer.echo(f"  Agents: {len(agents)}")
         if runs:
             last = runs[0]
-            typer.echo(f"  Last run: #{last.id} status={last.status} task={last.task_id} started={last.started_at}")
+            typer.echo(
+                f"  Last run: #{last.id} status={last.status} task={last.task_id} started={last.started_at}"
+            )
         else:
             typer.echo("  Last run: none")
 
@@ -795,7 +933,9 @@ def status():
         elif not projects:
             typer.echo("  Next: execforge project add <name> <local-path>")
         elif not agents:
-            typer.echo("  Next: execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>")
+            typer.echo(
+                "  Next: execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>"
+            )
         else:
             typer.echo("  Next: execforge agent run <agent-name>")
 
@@ -808,7 +948,9 @@ def start():
     typer.echo("  2) execforge prompt-source add <name> <repo-url>")
     typer.echo("  3) execforge prompt-source sync <name>")
     typer.echo("  4) execforge project add <name> <local-path>")
-    typer.echo("  5) execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>")
+    typer.echo(
+        "  5) execforge agent add <name> <prompt-source-name-or-id> <project-name-or-id>"
+    )
     typer.echo("  6) execforge agent run <name> or execforge agent loop <name>")
     typer.echo("")
     typer.echo("Run `execforge status` to see what is already configured.")

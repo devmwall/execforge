@@ -27,6 +27,30 @@ pip install agent-orchestrator
 pip install -e .
 ```
 
+Install with Python virtualenv (local dev):
+
+```bash
+# 1) create a virtual environment (Python 3.11+)
+python -m venv .venv
+
+# 2) activate it
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+# Windows (cmd)
+.venv\Scripts\activate.bat
+# macOS/Linux
+source .venv/bin/activate
+
+# 3) upgrade packaging tools (recommended)
+python -m pip install --upgrade pip setuptools wheel
+
+# 4) install this project in editable mode
+pip install -e .
+
+# 5) verify CLI install
+execforge --help
+```
+
 Check install:
 
 ```bash
@@ -272,6 +296,31 @@ export AGENT_ORCHESTRATOR_HOME=~/.agent-orchestrator
 
 - `docs/USAGE_WALKTHROUGH.md` - practical end-to-end flow
 - `docs/ARCHITECTURE.md` - implementation layout
+
+## CI/CD and PyPI publish
+
+This repo includes GitHub Actions pipelines:
+
+- `.github/workflows/ci.yml` - lint, tests, package build, and `twine check`
+- `.github/workflows/publish-testpypi.yml` - manual publish to TestPyPI
+- `.github/workflows/publish-pypi.yml` - publish to PyPI on release (and manual dispatch)
+
+Required repository secrets:
+
+- `TEST_PYPI_API_TOKEN` for TestPyPI publishing
+- `PYPI_API_TOKEN` for PyPI publishing
+
+Typical release flow:
+
+```bash
+# 1) bump version in pyproject.toml
+# 2) commit and tag
+git tag v0.1.1
+git push origin main --tags
+
+# 3) create/publish a GitHub Release for that tag
+#    -> triggers publish-pypi.yml
+```
 
 ## License
 
