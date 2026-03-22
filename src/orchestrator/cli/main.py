@@ -148,7 +148,6 @@ def _wizard_model_settings(
         return model_settings
 
     # auto-multi
-    has_llm = any(detected.values())
     model_settings = {
         "backend_priority": ["codex", "claude", "opencode", "shell", "mock"],
         "backends": {
