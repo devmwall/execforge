@@ -1,6 +1,8 @@
 # Execforge
 
-`execforge` is a local CLI that takes tasks from one repo and applies them to another repo.
+`execforge` is a local CLI that syncs task prompts from one repository and applies them to a target project repository.
+
+It is built for a practical operator loop: sync tasks, run an agent, inspect outcomes, and repeat.
 
 ## How to think about it
 
@@ -13,6 +15,12 @@ Keep this simple mental model:
 That is the whole product loop.
 
 ## Install
+
+Requirements:
+
+- Python 3.11+
+- Git
+- Optional execution CLIs for LLM backends (`claude`, `codex`, `opencode`)
 
 Choose one:
 
@@ -350,6 +358,7 @@ export AGENT_ORCHESTRATOR_HOME=~/.agent-orchestrator
 
 - `docs/USAGE_WALKTHROUGH.md` - practical end-to-end flow
 - `docs/ARCHITECTURE.md` - implementation layout
+- `docs/LICENSE.md` - license usage and attribution notes
 
 ## CI/CD and package publish
 
@@ -379,3 +388,5 @@ git push origin main --tags
 ## License
 
 MIT (see `LICENSE`).
+
+For attribution and redistribution guidance, see `docs/LICENSE.md`.

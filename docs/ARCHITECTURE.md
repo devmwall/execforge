@@ -48,3 +48,9 @@ State is kept outside project repos in user app data:
 - prompt source clones
 
 This keeps target repos clean and makes runs auditable.
+
+## Related docs
+
+- `README.md` for setup and operator-facing command usage
+- `docs/USAGE_WALKTHROUGH.md` for end-to-end execution flow
+- `docs/LICENSE.md` for licensing and redistribution notes

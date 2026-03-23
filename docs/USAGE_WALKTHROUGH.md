@@ -2,6 +2,12 @@
 
 This walkthrough follows the normal operator flow.
 
+Requirements:
+
+- Python 3.11+
+- Git
+- Execforge installed and available on PATH (`execforge --help`)
+
 ## 1) Initialize
 
 ```bash
@@ -84,3 +90,9 @@ execforge agent loop app-agent --all-eligible-prompts
 - validations run
 - changes are committed (unless dry run)
 - run history is recorded
+
+## Related docs
+
+- `README.md` for install, command reference, and release workflow
+- `docs/ARCHITECTURE.md` for implementation layout
+- `docs/LICENSE.md` for license usage and attribution
